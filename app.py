@@ -164,18 +164,43 @@ class Database:
                 self._connection.commit()
             except sqlite3.OperationalError:
                 pass
+
+            # Chat sessions table
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    title TEXT NOT NULL DEFAULT 'New Chat',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                """
+            )
+
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
+                    session_id INTEGER,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 );
                 """
             )
+
+            # Add session_id column to existing messages table if it doesn't exist
+            try:
+                cur.execute("ALTER TABLE messages ADD COLUMN session_id INTEGER REFERENCES chat_sessions(id) ON DELETE CASCADE")
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
             self._connection.commit()
 
     def create_user(self, username: str, password: str) -> Optional[int]:
@@ -205,32 +230,106 @@ class Database:
             return None
         return row["id"], row["username"]
 
-    def append_message(self, user_id: int, role: str, content: str) -> None:
+    def create_session(self, user_id: int, title: str = "New Chat") -> int:
+        """Create a new chat session and return its ID."""
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._lock:
+            cur = self._connection.execute(
+                "INSERT INTO chat_sessions (user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?);",
+                (user_id, title, now, now),
+            )
+            self._connection.commit()
+            return int(cur.lastrowid)
+
+    def get_sessions(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all chat sessions for a user, ordered by most recent."""
+        with self._lock:
+            cur = self._connection.execute(
+                """
+                SELECT id, title, created_at, updated_at,
+                       (SELECT COUNT(*) FROM messages WHERE session_id = chat_sessions.id) as message_count
+                FROM chat_sessions
+                WHERE user_id = ?
+                ORDER BY updated_at DESC;
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "message_count": row["message_count"],
+            }
+            for row in rows
+        ]
+
+    def get_or_create_default_session(self, user_id: int) -> int:
+        """Get the most recent session or create a new one."""
+        sessions = self.get_sessions(user_id)
+        if sessions:
+            return sessions[0]["id"]
+        return self.create_session(user_id, "New Chat")
+
+    def update_session_title(self, session_id: int, title: str) -> None:
+        """Update session title."""
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         with self._lock:
             self._connection.execute(
-                "INSERT INTO messages (user_id, role, content, created_at) VALUES (?, ?, ?, ?);",
-                (user_id, role, content, now),
+                "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?;",
+                (title, now, session_id),
             )
             self._connection.commit()
 
-    def get_recent_messages(self, user_id: int, limit: int) -> List[Dict[str, str]]:
+    def update_session_timestamp(self, session_id: int) -> None:
+        """Update session's updated_at timestamp."""
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._lock:
+            self._connection.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE id = ?;",
+                (now, session_id),
+            )
+            self._connection.commit()
+
+    def delete_session(self, session_id: int, user_id: int) -> bool:
+        """Delete a session (messages will cascade delete)."""
+        with self._lock:
+            cur = self._connection.execute(
+                "DELETE FROM chat_sessions WHERE id = ? AND user_id = ?;",
+                (session_id, user_id),
+            )
+            self._connection.commit()
+            return cur.rowcount > 0
+
+    def append_message(self, user_id: int, session_id: int, role: str, content: str) -> None:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO messages (user_id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?);",
+                (user_id, session_id, role, content, now),
+            )
+            self._connection.commit()
+        # Update session timestamp
+        self.update_session_timestamp(session_id)
+
+    def get_recent_messages(self, user_id: int, session_id: int, limit: int) -> List[Dict[str, str]]:
         with self._lock:
             cur = self._connection.execute(
                 """
                 SELECT role, content
                 FROM messages
-                WHERE user_id = ?
-                ORDER BY id DESC
+                WHERE user_id = ? AND session_id = ?
+                ORDER BY id ASC
                 LIMIT ?;
                 """,
-                (user_id, limit),
+                (user_id, session_id, limit),
             )
             rows = cur.fetchall()
-        ordered = list(reversed(rows))
         return [
             {"role": row["role"], "content": row["content"]}
-            for row in ordered
+            for row in rows
         ]
 
     def update_last_nkn_addr(self, user_id: int, address: str) -> None:
@@ -245,45 +344,53 @@ class Database:
 class SessionManager:
     """Manages user sessions bound to NKN addresses with expiry."""
     def __init__(self) -> None:
-        self._sessions: Dict[str, Tuple[int, str, float]] = {}  # src -> (user_id, username, timestamp)
+        self._sessions: Dict[str, Tuple[int, str, int, float]] = {}  # src -> (user_id, username, current_session_id, timestamp)
         self._lock = threading.Lock()
         self._session_timeout_s = 3600 * 24  # 24 hours
 
-    def login(self, src: str, user_id: int, username: str) -> None:
+    def login(self, src: str, user_id: int, username: str, session_id: int) -> None:
         """Create a new session bound to the NKN address."""
         with self._lock:
-            self._sessions[src] = (user_id, username, time.time())
-            print(f"[session] Created session for user_id={user_id} username={username} addr={src}")
+            self._sessions[src] = (user_id, username, session_id, time.time())
+            print(f"[session] Created session for user_id={user_id} username={username} session_id={session_id} addr={src}")
 
     def logout(self, src: str) -> None:
         """Remove session for the given NKN address."""
         with self._lock:
             if src in self._sessions:
-                user_id, username, _ = self._sessions[src]
+                user_id, username, session_id, _ = self._sessions[src]
                 print(f"[session] Logout user_id={user_id} username={username} addr={src}")
             self._sessions.pop(src, None)
 
-    def get(self, src: str) -> Optional[Tuple[int, str]]:
+    def get(self, src: str) -> Optional[Tuple[int, str, int]]:
         """Get session for the given NKN address, validating it hasn't expired."""
         with self._lock:
             session = self._sessions.get(src)
             if session is None:
                 return None
-            user_id, username, timestamp = session
+            user_id, username, session_id, timestamp = session
             # Check if session expired
             if time.time() - timestamp > self._session_timeout_s:
                 print(f"[session] Expired session for user_id={user_id} addr={src}")
                 self._sessions.pop(src, None)
                 return None
-            return (user_id, username)
+            return (user_id, username, session_id)
 
     def refresh(self, src: str) -> None:
         """Refresh session timestamp on activity."""
         with self._lock:
             session = self._sessions.get(src)
             if session:
-                user_id, username, _ = session
-                self._sessions[src] = (user_id, username, time.time())
+                user_id, username, session_id, _ = session
+                self._sessions[src] = (user_id, username, session_id, time.time())
+
+    def set_current_session(self, src: str, session_id: int) -> None:
+        """Switch the current session for a user."""
+        with self._lock:
+            session = self._sessions.get(src)
+            if session:
+                user_id, username, _, timestamp = session
+                self._sessions[src] = (user_id, username, session_id, timestamp)
 
     def validate_user_address(self, db: Database, src: str, user_id: int) -> bool:
         """Verify that the user's last known NKN address matches the current one."""
@@ -687,6 +794,15 @@ class NKNRelayServer:
         if event == "chat.refresh":
             self._handle_chat_refresh(src, payload)
             return
+        if event == "session.create":
+            self._handle_session_create(src, payload)
+            return
+        if event == "session.switch":
+            self._handle_session_switch(src, payload)
+            return
+        if event == "session.delete":
+            self._handle_session_delete(src, payload)
+            return
         if event == "chat.abort":
             req_id = payload.get("id")
             if req_id:
@@ -736,26 +852,34 @@ class NKNRelayServer:
             print(f"[auth] User '{uname}' switching from {existing_session} to {src}")
             self._sessions.logout(existing_session)
 
+        # Get or create default chat session
+        session_id = self._db.get_or_create_default_session(user_id)
+
         # Create new session bound to this NKN address
-        self._sessions.login(src, user_id, uname)
+        self._sessions.login(src, user_id, uname, session_id)
         self._db.update_last_nkn_addr(user_id, src)
         print(f"[auth] Login OK for '{uname}' (user_id={user_id}) from {src}")
 
-        history = self._db.get_recent_messages(user_id=user_id, limit=MAX_CONTEXT_MESSAGES)
+        # Get sessions and messages for current session
+        sessions = self._db.get_sessions(user_id)
+        messages = self._db.get_recent_messages(user_id=user_id, session_id=session_id, limit=MAX_CONTEXT_MESSAGES)
+
         self._reply(
             src,
             req_id,
             "auth.login.ok",
             username=uname,
             user_id=user_id,
-            messages=history,
+            current_session_id=session_id,
+            sessions=sessions,
+            messages=messages,
             nkn_address=src,
         )
 
     def _find_user_session(self, user_id: int) -> Optional[str]:
         """Find the NKN address associated with a user's active session."""
         with self._sessions._lock:
-            for addr, (uid, _, _) in self._sessions._sessions.items():
+            for addr, (uid, _, _, _) in self._sessions._sessions.items():
                 if uid == user_id:
                     return addr
         return None
@@ -771,8 +895,8 @@ class NKNRelayServer:
         if session is None:
             self._reply(src, req_id, "auth.status", authenticated=False)
         else:
-            _user_id, username = session
-            self._reply(src, req_id, "auth.status", authenticated=True, username=username)
+            user_id, username, session_id = session
+            self._reply(src, req_id, "auth.status", authenticated=True, username=username, current_session_id=session_id)
 
     def _handle_chat_refresh(self, src: str, payload: Dict[str, Any]) -> None:
         """Handle request to refresh conversation history from database."""
@@ -781,20 +905,130 @@ class NKNRelayServer:
         if session is None:
             self._reply(src, req_id, "chat.refresh.error", error="not_authenticated")
             return
-        user_id, username = session
+        user_id, username, session_id = session
 
         # Refresh session timestamp on activity
         self._sessions.refresh(src)
 
-        # Get recent messages from database
-        messages = self._db.get_recent_messages(user_id=user_id, limit=MAX_CONTEXT_MESSAGES)
+        # Get sessions and messages for current session
+        sessions = self._db.get_sessions(user_id)
+        messages = self._db.get_recent_messages(user_id=user_id, session_id=session_id, limit=MAX_CONTEXT_MESSAGES)
         self._reply(
             src,
             req_id,
             "chat.refresh.ok",
+            sessions=sessions,
             messages=messages,
+            current_session_id=session_id,
             timestamp=time.time(),
         )
+
+    def _handle_session_create(self, src: str, payload: Dict[str, Any]) -> None:
+        """Create a new chat session and switch to it."""
+        req_id = payload.get("id")
+        session = self._sessions.get(src)
+        if session is None:
+            self._reply(src, req_id, "session.create.error", error="not_authenticated")
+            return
+        user_id, username, _ = session
+
+        # Create new session
+        new_session_id = self._db.create_session(user_id, "New Chat")
+
+        # Switch to the new session
+        self._sessions.set_current_session(src, new_session_id)
+
+        # Get updated sessions list
+        sessions = self._db.get_sessions(user_id)
+        messages = self._db.get_recent_messages(user_id=user_id, session_id=new_session_id, limit=MAX_CONTEXT_MESSAGES)
+
+        self._reply(
+            src,
+            req_id,
+            "session.create.ok",
+            session_id=new_session_id,
+            sessions=sessions,
+            messages=messages,
+            current_session_id=new_session_id,
+        )
+        print(f"[session] Created new session {new_session_id} for user_id={user_id}")
+
+    def _handle_session_switch(self, src: str, payload: Dict[str, Any]) -> None:
+        """Switch to a different chat session."""
+        req_id = payload.get("id")
+        session = self._sessions.get(src)
+        if session is None:
+            self._reply(src, req_id, "session.switch.error", error="not_authenticated")
+            return
+        user_id, username, _ = session
+
+        target_session_id = payload.get("session_id")
+        if not target_session_id:
+            self._reply(src, req_id, "session.switch.error", error="session_id required")
+            return
+
+        # Verify session belongs to user
+        sessions = self._db.get_sessions(user_id)
+        if not any(s["id"] == target_session_id for s in sessions):
+            self._reply(src, req_id, "session.switch.error", error="session not found")
+            return
+
+        # Switch to the target session
+        self._sessions.set_current_session(src, target_session_id)
+
+        # Get messages for the target session
+        messages = self._db.get_recent_messages(user_id=user_id, session_id=target_session_id, limit=MAX_CONTEXT_MESSAGES)
+
+        self._reply(
+            src,
+            req_id,
+            "session.switch.ok",
+            session_id=target_session_id,
+            messages=messages,
+            current_session_id=target_session_id,
+        )
+        print(f"[session] User {username} switched to session {target_session_id}")
+
+    def _handle_session_delete(self, src: str, payload: Dict[str, Any]) -> None:
+        """Delete a chat session."""
+        req_id = payload.get("id")
+        session = self._sessions.get(src)
+        if session is None:
+            self._reply(src, req_id, "session.delete.error", error="not_authenticated")
+            return
+        user_id, username, current_session_id = session
+
+        target_session_id = payload.get("session_id")
+        if not target_session_id:
+            self._reply(src, req_id, "session.delete.error", error="session_id required")
+            return
+
+        # Delete the session
+        success = self._db.delete_session(target_session_id, user_id)
+        if not success:
+            self._reply(src, req_id, "session.delete.error", error="session not found")
+            return
+
+        # If we deleted the current session, switch to another one
+        new_current_session_id = current_session_id
+        if target_session_id == current_session_id:
+            new_current_session_id = self._db.get_or_create_default_session(user_id)
+            self._sessions.set_current_session(src, new_current_session_id)
+
+        # Get updated sessions list and messages
+        sessions = self._db.get_sessions(user_id)
+        messages = self._db.get_recent_messages(user_id=user_id, session_id=new_current_session_id, limit=MAX_CONTEXT_MESSAGES)
+
+        self._reply(
+            src,
+            req_id,
+            "session.delete.ok",
+            deleted_session_id=target_session_id,
+            sessions=sessions,
+            messages=messages,
+            current_session_id=new_current_session_id,
+        )
+        print(f"[session] User {username} deleted session {target_session_id}")
 
     def _handle_chat_begin(self, src: str, payload: Dict[str, Any]) -> None:
         req_id = payload.get("id") or f"dm-{int(time.time() * 1000)}"
@@ -803,7 +1037,7 @@ class NKNRelayServer:
             self._reply(src, req_id, "chat.error", error="not_authenticated")
             print(f"[chat] Rejected unauthenticated request {req_id} from {src}")
             return
-        user_id, username = session
+        user_id, username, session_id = session
 
         # Refresh session timestamp on activity
         self._sessions.refresh(src)
@@ -814,11 +1048,11 @@ class NKNRelayServer:
             return
         text = text[:MAX_MESSAGE_LENGTH]
         print(
-            f"[chat] Start req={req_id} user={username} (user_id={user_id}) src={src} chars={len(text)}"
+            f"[chat] Start req={req_id} user={username} (user_id={user_id}) session={session_id} src={src} chars={len(text)}"
         )
         threading.Thread(
             target=self._serve_chat,
-            args=(src, req_id, user_id, text),
+            args=(src, req_id, user_id, session_id, text),
             daemon=True,
         ).start()
 
@@ -828,13 +1062,24 @@ class NKNRelayServer:
             if evt:
                 evt.set()
 
-    def _serve_chat(self, src: str, req_id: str, user_id: int, message_text: str) -> None:
+    def _serve_chat(self, src: str, req_id: str, user_id: int, session_id: int, message_text: str) -> None:
         cancel_flag = threading.Event()
         with self._lock:
             self._active[req_id] = cancel_flag
         history_limit = max(0, MAX_CONTEXT_MESSAGES - 1)
-        history = self._db.get_recent_messages(user_id=user_id, limit=history_limit)
-        self._db.append_message(user_id, "user", message_text)
+        history = self._db.get_recent_messages(user_id=user_id, session_id=session_id, limit=history_limit)
+
+        # Auto-generate session title from first message (if session title is still "New Chat")
+        sessions = self._db.get_sessions(user_id)
+        current_session = next((s for s in sessions if s["id"] == session_id), None)
+        if current_session and current_session["title"] == "New Chat" and current_session["message_count"] == 0:
+            # Generate title from first 50 chars of message
+            title = message_text[:50].strip()
+            if len(message_text) > 50:
+                title += "..."
+            self._db.update_session_title(session_id, title)
+
+        self._db.append_message(user_id, session_id, "user", message_text)
         system_prompt = self._prompts.get_prompt()
         assembled: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         assembled.extend(history)
@@ -911,9 +1156,9 @@ class NKNRelayServer:
 
         full_reply = "".join(full_reply_parts).strip()
         if full_reply:
-            self._db.append_message(user_id, "assistant", full_reply)
+            self._db.append_message(user_id, session_id, "assistant", full_reply)
         print(
-            f"[chat] complete req={req_id} src={src} reply_chars={len(full_reply)} deltas={seq_num}"
+            f"[chat] complete req={req_id} src={src} session={session_id} reply_chars={len(full_reply)} deltas={seq_num}"
         )
 
 
