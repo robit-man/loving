@@ -468,10 +468,14 @@
     }
 
     @media (max-width: 640px) {
-      .card { padding: 18px 16px 16px; }
+      .card { 
+        width: calc(100% - 2rem);
+        border-radius: 1rem;padding: 18px 16px 16px; }
       .chat-bubble { max-width: 100%; }
       .conn-bar { flex-direction: column; align-items: stretch; }
-      .sessions-sidebar { position: absolute; z-index: 100; height: 100%; }
+      .sessions-sidebar { 
+        width: calc(100% - 2rem);
+        border-radius: 1rem;position: absolute; z-index: 100; height: 100%; }
       .chat-interface.sidebar-hidden .chat-main-content {
         padding-left: 16px;
       }
