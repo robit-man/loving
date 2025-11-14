@@ -974,7 +974,7 @@ function switchLoginModalState(newState){
 
 function updateSessionUI(){
   if (state.session){
-    els.sessionStatus.textContent = `Signed in as ${state.session.username}`;
+    els.sessionStatus.textContent = `Hi ${state.session.username}`;
     els.sendBtn.disabled = state.busy;
     switchToView('chat');
   } else {
