@@ -162,6 +162,32 @@
     }
     .status-pill.ok { background: rgba(187,247,208,0.9); color: #065f46; }
     .status-pill.err { background: rgba(254,226,226,0.95); color: #991b1b; }
+    .model-status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 999px;
+      font-size: 12px; font-weight: 600;
+      background: rgba(243, 232, 255, 0.5);
+      color: #6b21a8;
+      border: none;
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.15);
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .model-status-pill[data-phase="idle"] {
+      background: rgba(187,247,208,0.35);
+      color: #065f46;
+    }
+    .model-status-pill[data-phase="loading"] {
+      background: rgba(252, 211, 77, 0.35);
+      color: #92400e;
+    }
+    .model-status-pill[data-phase="streaming"] {
+      background: rgba(190, 242, 255, 0.35);
+      color: #0c4a6e;
+    }
+    .model-status-pill[data-phase="error"] {
+      background: rgba(254,226,226,0.6);
+      color: #b91c1c;
+    }
     .app-main { flex: 1; padding: 24px 16px 32px; display: flex; justify-content: center; }
     .card {
       width: 100%; max-width: 900px; background: var(--bg-card);
@@ -212,7 +238,7 @@
       display: flex; align-items: center; gap: 12px; justify-content: space-between;
       padding: 12px 16px; border-radius: var(--radius-card);
       border: none; background: rgba(255,255,255,0.9);
-      flex-shrink: 0;
+      flex-shrink: 0; flex-flow: wrap;
       box-shadow: 0 12px 35px rgba(15, 0, 10, 0.12);
     }
     .sidebar-inline-toggle {
@@ -469,10 +495,19 @@
     }
 
     @media (max-width: 640px) {
+      .app-main{
+        padding:1rem;
+      }
       .card { 
-        width: calc(100% - 2rem);
-        border-radius: 1rem;padding: 18px 16px 16px; }
+        background: unset;
+        width: 100%;
+        padding: unset;
+        height: 100vh;
+        box-sizing: border-box;
+        box-shadow: unset;}
       .chat-bubble { max-width: 100%; }
+      .chat-messages{ padding: 16px; min-height: 200px;}
+      .chat-textarea { min-height: 60px; }
       .conn-bar { flex-direction: column; align-items: stretch; }
       .sessions-sidebar { 
         width: calc(100% - 2rem);
@@ -572,6 +607,7 @@
         <div class="session-bar">
           <button class="sidebar-inline-toggle" id="sidebar-toggle-inline" title="Show chats">☰</button>
           <span id="session-status">Not signed in.</span>
+          <span class="model-status-pill" id="model-status-pill" data-phase="idle">Model idle</span>
           <span id="client-count">Peers: 0</span>
           <button type="button" id="logout-btn">Sign out</button>
         </div>
@@ -729,6 +765,7 @@ const state = {
   },
   autoLoginTried: false,
   savedCreds: null,
+  modelStatus: { phase: 'idle', description: 'Model idle', meta: {} },
 };
 
 state.nkn.seed = getOrCreateSeed();
@@ -746,6 +783,7 @@ const els = {
   authSection: document.getElementById('auth-section'),
   chatArea: document.getElementById('chat-area'),
   chatInterface: document.querySelector('.chat-interface'),
+  modelStatusPill: document.getElementById('model-status-pill'),
   sessionsSidebar: document.getElementById('sessions-sidebar'),
   sidebarToggle: document.getElementById('sidebar-toggle'),
   sidebarInlineToggle: document.getElementById('sidebar-toggle-inline'),
@@ -951,6 +989,9 @@ async function checkRelay(){
   const summary = info && info.model ? `Relay ready · model ${info.model}` : 'Relay info received';
   logActivity(summary, true);
   updateClientCount();
+  if (info && info.model && state.modelStatus.phase === 'idle'){
+    setModelStatus('idle', { description: `${info.model} ready`, model: info.model });
+  }
 
   // Attempt auto-login if we have saved credentials and haven't logged in yet
   if (!state.session && state.savedCreds && !state.autoLoginTried){
@@ -991,6 +1032,49 @@ function updateClientCount(){
   const count = typeof info.peer_count === 'number' ? info.peer_count : (state.session ? 1 : 0);
   els.clientCount.textContent = `Peers: ${count}`;
 }
+
+function describeModelPhase(phase, meta = {}){
+  const modelName = meta.model || (state.relayInfo && state.relayInfo.model) || 'model';
+  switch (phase){
+    case 'loading':
+      return `Loading ${modelName}…`;
+    case 'streaming':
+      return 'Streaming response…';
+    case 'error':
+      return meta.detail ? `Model error · ${meta.detail}` : 'Model error';
+    case 'idle':
+    default:
+      return `${modelName} ready`;
+  }
+}
+
+function setModelStatus(phase, meta = {}){
+  const description = meta.description || meta.message || describeModelPhase(phase, meta);
+  state.modelStatus = { phase, description, meta };
+  if (els.modelStatusPill){
+    els.modelStatusPill.textContent = description;
+    els.modelStatusPill.dataset.phase = phase;
+    if (meta.detail || meta.error){
+      els.modelStatusPill.title = meta.detail || meta.error;
+    } else if (meta.model || (state.relayInfo && state.relayInfo.model)){
+      els.modelStatusPill.title = meta.model || state.relayInfo.model || '';
+    } else {
+      els.modelStatusPill.removeAttribute('title');
+    }
+  }
+}
+
+function applyModelStatusEvent(data){
+  if (!data) return;
+  const phase = data.phase || 'idle';
+  setModelStatus(phase, data);
+  const detail = data.detail || data.description || '';
+  const ok = phase !== 'error';
+  const activity = detail ? `${phase} · ${detail}` : phase;
+  logActivity(`Model ${activity}`, ok);
+}
+
+setModelStatus(state.modelStatus.phase, { description: state.modelStatus.description });
 
 async function attemptAutoLogin(){
   if (state.autoLoginTried) return;
@@ -1156,6 +1240,12 @@ function startTypingAnimation(targetNode) {
 
 function queueTypingChunk(chunk) {
   typingQueue.push(chunk);
+}
+
+function setTypingPlaceholder(text) {
+  if (!typingAnimationActive || !currentTypingNode) return;
+  currentTypingText = text;
+  renderMarkdown(currentTypingNode, currentTypingText);
 }
 
 function endTyping() {
@@ -1407,9 +1497,20 @@ async function handleSend(event){
 
   // Start typing animation for this assistant message
   startTypingAnimation(assistantBody);
+  renderMarkdown(assistantBody, '_Preparing model…_');
+  setTypingPlaceholder('_Preparing model…_');
+  const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
+  setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
+  let streamingNoted = false;
 
   const handlers = {
     onDelta(delta, seq, batchSize){
+      if (!streamingNoted){
+        streamingNoted = true;
+        if (state.modelStatus.phase !== 'streaming'){
+          setModelStatus('streaming', { model: modelLabel });
+        }
+      }
       // Handle sequenced deltas (may be batched)
       let chunkToQueue = '';
 
@@ -1473,6 +1574,9 @@ async function handleSend(event){
         state.messages.push({ id: assistantMsgId, role: 'assistant', content: accumulated });
       }
       setBusy(false);
+      if (state.modelStatus.phase !== 'idle'){
+        setModelStatus('idle', { model: modelLabel });
+      }
 
       // Do final DB refresh to ensure we're in sync (merge, don't replace)
       nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 1, timeoutMs: 5000 })
@@ -1541,6 +1645,17 @@ async function handleSend(event){
             setBusy(false);
           });
       }, 500); // Small delay to allow any pending writes to complete
+      if (state.modelStatus.phase !== 'error'){
+        setModelStatus('idle', { model: modelLabel });
+      }
+    },
+    onStatus(statusPayload){
+      applyModelStatusEvent(statusPayload);
+      if (statusPayload && statusPayload.phase === 'loading') {
+        const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
+        renderMarkdown(assistantBody, `_${desc}_`);
+        setTypingPlaceholder(`_${desc}_`);
+      }
     }
   };
 
@@ -1645,6 +1760,9 @@ function handleNknMessage(src, payload){
   }
   const ctx = state.nkn.pending.get(reqId);
   if (!ctx) {
+    if (event === 'model.status'){
+      applyModelStatusEvent(data);
+    }
     // Return false - message not for us
     return false;
   }
@@ -1664,6 +1782,12 @@ function handleNknMessage(src, payload){
       logActivity(`Chat stream error (${data.error || 'unknown'})`, false);
     } else if (event === 'chat.ack'){
       // ignore
+    } else if (event === 'model.status'){
+      if (ctx.handlers.onStatus){
+        ctx.handlers.onStatus(data);
+      } else {
+        applyModelStatusEvent(data);
+      }
     }
   } else if (ctx.kind === 'request'){
     clearTimeout(ctx.timer);
@@ -1986,7 +2110,12 @@ els.pubkeyInput.addEventListener('input', syncRelayInputs);
 if (els.copyAddress) els.copyAddress.addEventListener('click', copyAddress);
 els.sidebarToggle.addEventListener('click', toggleSidebar);
 if (els.sidebarInlineToggle) els.sidebarInlineToggle.addEventListener('click', toggleSidebar);
-els.newChatBtn.addEventListener('click', createNewSession);
+els.newChatBtn.addEventListener('click', async () => {
+  await createNewSession();
+  if (isMobileViewport()) {
+    setSidebarHidden(true);
+  }
+});
 els.connectBtn.addEventListener('click', async () => {
   if (!requireRelay()) return;
   try {

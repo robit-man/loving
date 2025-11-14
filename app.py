@@ -886,6 +886,24 @@ class NKNRelayServer:
         with contextlib.suppress(Exception):
             self._bridge.send(to_addr, payload)
 
+    def _send_model_status(
+        self,
+        to_addr: str,
+        req_id: Optional[str],
+        phase: str,
+        **extra: Any,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "event": "model.status",
+            "phase": phase,
+            "model": OLLAMA_MODEL_NAME,
+            "timestamp": time.time(),
+        }
+        if req_id is not None:
+            payload["id"] = req_id
+        payload.update(extra)
+        self._send(to_addr, payload)
+
     def _reply(self, src: str, req_id: Optional[str], event: str, **extra: Any) -> None:
         data = {"event": event}
         if req_id is not None:
@@ -1224,6 +1242,12 @@ class NKNRelayServer:
         assembled.extend(history)
         assembled.append({"role": "user", "content": message_text})
         self._send(src, {"event": "chat.ack", "id": req_id, "model": OLLAMA_MODEL_NAME})
+        self._send_model_status(
+            src,
+            req_id,
+            "loading",
+            context_messages=len(history),
+        )
 
         # Streaming with batched deltas and progressive persistence
         full_reply_parts: List[str] = []
@@ -1235,6 +1259,8 @@ class NKNRelayServer:
         batch_max_chars = 100
         batch_max_delay_ms = 50
         persist_interval_ms = 500  # Save to DB every 500ms
+        final_content = ""
+        streaming_signaled = False
 
         def flush_batch():
             nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num, last_persist_time
@@ -1267,6 +1293,14 @@ class NKNRelayServer:
                 if cancel_flag.is_set():
                     break
                 if delta:
+                    if not streaming_signaled:
+                        streaming_signaled = True
+                        self._send_model_status(
+                            src,
+                            req_id,
+                            "streaming",
+                            started=time.time(),
+                        )
                     full_reply_parts.append(delta)
                     batch_buffer.append(delta)
 
@@ -1281,16 +1315,38 @@ class NKNRelayServer:
             # Flush any remaining batched deltas
             flush_batch()
 
+            final_content = "".join(full_reply_parts)
+            self._send_model_status(
+                src,
+                req_id,
+                "idle",
+                total_seq=seq_num,
+                chars=len(final_content),
+            )
             # Send completion marker with final sequence number and full content
             self._send(src, {
                 "event": "chat.done",
                 "id": req_id,
                 "done": True,
                 "total_seq": seq_num,
-                "final_content": "".join(full_reply_parts)
+                "final_content": final_content
             })
 
         except Exception as exc:  # pragma: no cover - network path
+            partial_content = "".join(full_reply_parts)
+            self._send_model_status(
+                src,
+                req_id,
+                "error",
+                detail=str(exc),
+                partial_chars=len(partial_content),
+            )
+            self._send_model_status(
+                src,
+                req_id,
+                "idle",
+                partial_chars=len(partial_content),
+            )
             self._send(src, {
                 "event": "chat.error",
                 "id": req_id,
@@ -1303,7 +1359,7 @@ class NKNRelayServer:
             with self._lock:
                 self._active.pop(req_id, None)
 
-        full_reply = "".join(full_reply_parts).strip()
+        full_reply = final_content.strip()
         if full_reply and assistant_msg_uuid:
             # Mark the partial message as complete (or insert if it wasn't progressively saved)
             partial_state = self._db.get_partial_message(assistant_msg_uuid)
