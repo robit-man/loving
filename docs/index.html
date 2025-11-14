@@ -7,60 +7,181 @@
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Radio+Canada:ital,wght@0,300..700;1,300..700&display=swap');
     :root {
-      --bg-page: #f8f0e6;
-      --bg-card: #fff9f4;
-      --bg-input: #fdf3ea;
-      --border-subtle: #f0d7c2;
+      --bg-page: #05020c;
+      --bg-card: rgba(255, 249, 244, 0.95);
+      --bg-panel: rgba(255, 255, 255, 0.9);
+      --bg-input: rgba(255, 249, 244, 0.75);
+      --border-subtle: rgba(240, 170, 160, 0.35);
       --text-main: #3d2b26;
-      --text-muted: #8b6f63;
-      --accent: #ec4899;
-      --accent-soft: #fce7f3;
-      --radius-card: 14px;
-      --shadow-card: 0 12px 30px rgba(60, 30, 20, 0.16);
+      --text-muted: rgba(78, 55, 50, 0.7);
+      --accent: #f472b6;
+      --accent-soft: rgba(244, 114, 182, 0.15);
+      --radius-card: 18px;
+      --shadow-card: 0 25px 60px rgba(7, 2, 12, 0.35);
+      --glow-rose: rgba(255, 182, 213, 0.35);
+      --pointer-x: 0.5;
+      --pointer-y: 0.5;
+      --pointer-shift-x: 0px;
+      --pointer-shift-y: 0px;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       font-family: "Radio Canada", sans-serif;
-      background: radial-gradient(circle at top left, #fff1f7 0, var(--bg-page) 38%, #f4e6d7 100%);
+      background: radial-gradient(circle at 20% 15%, rgba(255, 198, 223, 0.2), transparent 50%),
+        radial-gradient(circle at 75% 10%, rgba(255, 255, 255, 0.12), transparent 45%),
+        linear-gradient(130deg, #06020f 0%, #14031a 65%, #07000f 100%);
       color: var(--text-main);
+      position: relative;
+      overflow-x: hidden;
     }
-    .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      width: min(60vw, 720px);
+      height: min(60vw, 720px);
+      filter: blur(120px);
+      background: radial-gradient(circle, rgba(255, 204, 229, 0.35), transparent 70%);
+      z-index: 0;
+      pointer-events: none;
+      transform: translate3d(
+        calc(var(--pointer-shift-x, 0px) * 0.3),
+        calc(var(--pointer-shift-y, 0px) * 0.3),
+        0
+      );
+      transition: transform 0.4s ease-out;
+    }
+    body::before { top: -10%; left: -5%; opacity: 0.9; }
+    body::after { bottom: -20%; right: -10%; opacity: 0.55; }
+    .ambient-background {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .ambient-background .glow {
+      position: absolute;
+      width: clamp(280px, 45vw, 620px);
+      height: clamp(280px, 45vw, 620px);
+      background: radial-gradient(circle, rgba(255, 245, 250, 0.8), transparent 65%);
+      filter: blur(90px);
+      opacity: 0.4;
+      --float-distance: 40px;
+      --float-duration: 18s;
+      --parallax-strength: 1;
+      animation: floatGlow var(--float-duration) ease-in-out infinite;
+      animation-delay: var(--float-delay, 0s);
+      mix-blend-mode: screen;
+    }
+    .glow.one { top: -8%; left: 5%; --float-distance: 35px; --parallax-strength: 0.6; }
+    .glow.two { bottom: -22%; right: -5%; --float-duration: 22s; opacity: 0.35; --parallax-strength: 1.1; }
+    .glow.three {
+      top: 30%;
+      right: 25%;
+      width: clamp(200px, 30vw, 420px);
+      height: clamp(200px, 30vw, 420px);
+      opacity: 0.3;
+      --float-distance: 25px;
+      --float-duration: 16s;
+      --parallax-strength: 0.4;
+    }
+    .sparkles {
+      position: absolute;
+      inset: 0;
+      mix-blend-mode: screen;
+      filter: drop-shadow(0 0 18px rgba(255, 188, 220, 0.65));
+      pointer-events: none;
+    }
+    .sparkles span {
+      position: absolute;
+      left: var(--sparkle-x, 50vw);
+      top: var(--sparkle-y, 50vh);
+      width: var(--sparkle-size, 6px);
+      height: var(--sparkle-size, 6px);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 12px rgba(255, 189, 222, 0.75), 0 0 28px rgba(255, 169, 211, 0.45);
+      animation: sparkleFloat var(--sparkle-duration, 12s) linear forwards;
+      animation-delay: var(--sparkle-delay, 0s);
+      opacity: 0;
+    }
+    @keyframes floatGlow {
+      0%, 100% {
+        transform: translate3d(
+          calc(var(--pointer-shift-x, 0px) * var(--parallax-strength, 1)),
+          calc(var(--pointer-shift-y, 0px) * var(--parallax-strength, 1)),
+          0
+        ) scale(1);
+      }
+      50% {
+        transform: translate3d(
+          calc(var(--pointer-shift-x, 0px) * var(--parallax-strength, 1)),
+          calc(var(--pointer-shift-y, 0px) * var(--parallax-strength, 1) + var(--float-distance, 40px)),
+          0
+        ) scale(1.05);
+      }
+    }
+    @keyframes sparkleFloat {
+      0% {
+        transform: translate3d(0, 0, 0) scale(0.6);
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      90% {
+        opacity: 0.9;
+      }
+      100% {
+        transform: translate3d(var(--drift-x, 0px), var(--drift-y, -120px), 0) scale(0);
+        opacity: 0;
+      }
+    }
+    @keyframes sparklePulse {
+      0%, 100% { transform: scale(0.8); opacity: 0.6; }
+      50% { transform: scale(1.3); opacity: 1; }
+    }
+    .app-shell { min-height: 100vh; display: flex; flex-direction: column; position: relative; z-index: 1; }
     .app-header {
-      padding: 14px 20px;
-      background: linear-gradient(90deg, #fff7fb 0, #fff9f4 40%, #ffeef8 100%);
-      border-bottom: 1px solid rgba(239, 200, 184, 0.8);
+      padding: 16px 24px;
+      border-bottom: none;
+      border-radius: var(--radius-card) var(--radius-card) 0 0;
       display: flex; justify-content: space-between; align-items: center; gap: 16px;
     }
     .app-header-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #be185d; }
     .app-header-sub { font-size: 13px; color: var(--text-muted); }
     .status-pill {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(236, 72, 153, 0.25);
-      background: rgba(252, 231, 243, 0.65); font-size: 12px;
+      padding: 6px 14px; border-radius: 999px; border: none;
+      background: rgba(252, 231, 243, 0.9); font-size: 12px;
+      box-shadow: 0 8px 16px rgba(255, 173, 204, 0.35);
     }
-    .status-pill.ok { border-color: rgba(34,197,94,0.4); background: rgba(187,247,208,0.6); }
-    .status-pill.err { border-color: rgba(248,113,113,0.5); background: rgba(254,242,242,0.7); }
+    .status-pill.ok { background: rgba(187,247,208,0.9); color: #065f46; }
+    .status-pill.err { background: rgba(254,226,226,0.95); color: #991b1b; }
     .app-main { flex: 1; padding: 24px 16px 32px; display: flex; justify-content: center; }
     .card {
       width: 100%; max-width: 900px; background: var(--bg-card);
       border-radius: var(--radius-card); box-shadow: var(--shadow-card);
-      padding: 26px 26px 24px; display: flex; flex-direction: column; gap: 20px;
-      border: 1px solid rgba(248, 219, 204, 0.7);
+      padding: 28px 30px 26px; display: flex; flex-direction: column; gap: 20px;
+      border: none;
+      backdrop-filter: blur(8px);
     }
     .card-title { font-size: 22px; font-weight: 600; margin: 0; }
     .card-subtitle { font-size: 14px; color: var(--text-muted); }
     .conn-bar {
       justify-content:space-between;
       display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-      background: #fffdf9; padding: 12px 14px; border-radius: var(--radius-card);
-      border: 1px dashed rgba(236, 146, 135, 0.7);
+      background: rgba(255, 255, 255, 0.92); padding: 16px 18px; border-radius: var(--radius-card);
+      border: none; box-shadow: 0 20px 45px rgba(5, 0, 9, 0.12);
     }
     .conn-bar label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
     .conn-bar input {
-      border-radius: 999px; border: 1px solid var(--border-subtle);
-      background: var(--bg-input); padding: 8px 14px; font-size: 13px;
+      border-radius: 999px; border: none;
+      background: var(--bg-input); padding: 10px 16px; font-size: 13px;
+      box-shadow: inset 0 0 0 1px rgba(236, 146, 135, 0.35);
     }
     .conn-bar button {
       border-radius: 999px; border: none; padding: 8px 16px; font-size: 13px;
@@ -71,13 +192,15 @@
     .auth-section { display: flex; flex-direction: column; gap: 12px; }
     .auth-forms { display: flex; flex-direction: column; gap: 12px; }
     .auth-card {
-      background: rgba(255,255,255,0.9); border: 1px solid rgba(240, 215, 194, 0.7);
-      border-radius: var(--radius-card); padding: 14px; display: flex; flex-direction: column; gap: 10px;
+      background: var(--bg-panel); border: none;
+      border-radius: var(--radius-card); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+      box-shadow: 0 15px 35px rgba(10, 0, 12, 0.15);
     }
     .auth-card label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
     .auth-card input {
-      border-radius: 999px; border: 1px solid var(--border-subtle);
-      padding: 8px 12px; font-size: 14px; background: var(--bg-input);
+      border-radius: 999px; border: none;
+      padding: 10px 14px; font-size: 14px; background: var(--bg-input);
+      box-shadow: inset 0 0 0 1px rgba(236, 146, 135, 0.3);
     }
     .auth-card button {
       align-self: flex-start; padding: 8px 16px; border-radius: 999px;
@@ -86,20 +209,22 @@
     }
     .session-bar {
       display: flex; align-items: center; gap: 12px; justify-content: space-between;
-      padding: 10px 14px; border-radius: var(--radius-card);
-      border: 1px solid rgba(240, 215, 194, 0.7); background: rgba(255,255,255,0.85);
+      padding: 12px 16px; border-radius: var(--radius-card);
+      border: none; background: rgba(255,255,255,0.9);
       flex-shrink: 0;
+      box-shadow: 0 12px 35px rgba(15, 0, 10, 0.12);
     }
     .session-bar button {
-      border-radius: 999px; border: 1px solid var(--border-subtle);
-      background: transparent; color: var(--text-main); padding: 6px 14px;
+      border-radius: 999px; border: none;
+      background: rgba(255, 214, 230, 0.6); color: var(--text-main); padding: 6px 14px;
       cursor: pointer;
+      box-shadow: 0 8px 15px rgba(236, 146, 135, 0.4);
     }
     .status-log {
       border-radius: var(--radius-card);
-      border: 1px solid rgba(240, 215, 194, 0.7);
-      background: rgba(255,255,255,0.85);
-      padding: 10px 12px;
+      border: none;
+      background: rgba(255,255,255,0.92);
+      padding: 12px 14px;
       min-height: 48px;
       font-size: 12px;
       color: var(--text-muted);
@@ -113,9 +238,10 @@
     .status-log div.err { color: #be123c; }
     .chat-messages {
       flex: 1; min-height: 0; overflow-y: auto;
-      background: rgba(255,255,255,0.9); border-radius: var(--radius-card);
-      border: 1px solid rgba(240, 215, 194, 0.7);
-      padding: 20px; display: flex; flex-direction: column; gap: 14px;
+      background: rgba(255,255,255,0.95); border-radius: var(--radius-card);
+      border: none;
+      padding: 24px; display: flex; flex-direction: column; gap: 14px;
+      box-shadow: inset 0 0 0 1px rgba(236, 200, 190, 0.2);
     }
     .chat-message { display: flex; flex-direction: column; gap: 4px; }
     .chat-message-user { align-items: flex-end; }
@@ -133,17 +259,18 @@
     }
     .chat-textarea {
       width: 100%; min-height: 120px; border-radius: 18px;
-      border: 1px solid var(--border-subtle);
-      padding: 14px; font-size: 14px; background: var(--bg-input);
+      border: none;
+      padding: 16px; font-size: 14px; background: var(--bg-input);
       resize: vertical; font-family: inherit;
+      box-shadow: inset 0 0 0 1px rgba(236, 180, 170, 0.35);
     }
     .chat-textarea:disabled { background: #f5ebe1; }
     .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .btn {
       background: linear-gradient(120deg, #f472b6, #fb7185);
       border: none; border-radius: 999px;
-      padding: 10px 26px; font-size: 14px; color: white; font-weight: 600;
-      box-shadow: 0 12px 24px rgba(244,114,182,0.3); cursor: pointer;
+      padding: 12px 28px; font-size: 14px; color: white; font-weight: 600;
+      box-shadow: 0 18px 30px rgba(244,114,182,0.35); cursor: pointer;
     }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
     .chat-hint { font-size: 12px; color: var(--text-muted); }
@@ -155,16 +282,54 @@
     .hidden { display: none !important; }
     .modal-overlay {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+      background: rgba(3,0,9,0.78); backdrop-filter: blur(10px);
       display: flex; align-items: center; justify-content: center;
       z-index: 1000;
+      padding: 20px;
     }
     .modal-content {
-      background: var(--bg-card); border-radius: var(--radius-card);
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      padding: 32px; max-width: 500px; width: 90%;
-      border: 1px solid rgba(248, 219, 204, 0.7);
+      background: linear-gradient(145deg, rgba(255, 250, 246, 0.95), rgba(255, 240, 248, 0.85));
+      border-radius: var(--radius-card);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.35), inset 0 0 1px rgba(255,255,255,0.4);
+      padding: 38px 36px; max-width: 520px; width: min(520px, 100%);
+      border: none;
+      position: relative;
+      overflow: hidden;
     }
+    .modal-content::before,
+    .modal-content::after {
+      content: "";
+      position: absolute;
+      width: 420px;
+      height: 420px;
+      background: radial-gradient(circle, rgba(255, 196, 223, 0.5), transparent 65%);
+      filter: blur(80px);
+      z-index: 0;
+    }
+    .modal-content::before { top: -35%; left: -20%; opacity: 0.8; }
+    .modal-content::after { bottom: -40%; right: -25%; opacity: 0.6; }
+    .modal-content > * { position: relative; z-index: 2; }
+    .modal-sparkles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      mix-blend-mode: screen;
+    }
+    .modal-sparkles span {
+      position: absolute;
+      display: block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 15px rgba(255, 189, 222, 0.7), 0 0 40px rgba(255, 169, 211, 0.45);
+      animation: sparklePulse 5s ease-in-out infinite;
+    }
+    .modal-sparkles span:nth-child(1) { top: 18%; left: 20%; }
+    .modal-sparkles span:nth-child(2) { top: 8%; right: 15%; animation-delay: 1s; }
+    .modal-sparkles span:nth-child(3) { bottom: 18%; left: 28%; animation-delay: 2s; }
+    .modal-sparkles span:nth-child(4) { bottom: 12%; right: 20%; animation-delay: 3s; }
     .modal-title {
       font-size: 24px; font-weight: 700; margin: 0 0 8px 0;
       color: #be185d;
@@ -188,12 +353,14 @@
     .chat-interface { display: flex; flex-direction: column; }
     .app-main { display: flex; flex-direction: row; gap: 0; align-items: stretch; }
     .sessions-sidebar {
-      width: 260px; background: rgba(255,252,249,0.95);
-      border-right: 1px solid rgba(240, 215, 194, 0.7);
+      width: 260px; background: rgba(255,252,249,0.92);
+      border-right: none;
       border-radius: var(--radius-card) 0 0 var(--radius-card);
-      display: flex; flex-direction: column; gap: 12px; padding: 16px;
+      display: flex; flex-direction: column; gap: 14px; padding: 18px;
       transition: margin-left 0.3s ease, opacity 0.3s ease;
       max-height: calc(100vh - 150px); overflow: hidden;
+      box-shadow: 0 20px 45px rgba(5, 0, 8, 0.18);
+      backdrop-filter: blur(10px);
     }
     .sessions-sidebar.hidden {
       margin-left: -260px; opacity: 0; pointer-events: none;
@@ -230,20 +397,22 @@
     .sessions-list {
       display: flex; flex-direction: column; gap: 6px;
       flex: 1; overflow-y: auto; min-height: 0;
+      margin: -1rem; padding: 1rem;
     }
     .session-item {
-      background: rgba(255,255,255,0.7); border: 1px solid rgba(240, 215, 194, 0.5);
-      border-radius: 10px; padding: 10px 12px; cursor: pointer;
+      background: rgba(255,255,255,0.9); border: none;
+      border-radius: 12px; padding: 12px 14px; cursor: pointer;
       transition: all 0.2s; display: flex; justify-content: space-between;
       align-items: center; gap: 8px;
+      box-shadow: 0 10px 18px rgba(18, 5, 12, 0.12);
     }
     .session-item:hover {
-      background: rgba(255,255,255,1);
-      border-color: var(--accent); transform: translateY(2px);
+      background: rgba(255,255,255,0.98);
+      transform: translateY(2px) scale(1.01);
     }
     .session-item.active {
-      background: var(--accent-soft); border-color: var(--accent);
-      box-shadow: 0 2px 8px rgba(236,72,153,0.2);
+      background: rgba(255,223,235,0.9); border: none;
+      box-shadow: 0 12px 20px rgba(236,72,153,0.25);
     }
     .session-item-content {
       flex: 1; min-width: 0;
@@ -291,11 +460,23 @@
   <script src="https://cdn.jsdelivr.net/npm/nkn-sdk@1.3.6/dist/nkn.min.js"></script>
 </head>
 <body class="view-login">
+<div class="ambient-background">
+  <div class="glow one"></div>
+  <div class="glow two"></div>
+  <div class="glow three"></div>
+  <div class="sparkles"></div>
+</div>
 <div class="app-shell">
 
   <!-- Login Modal View -->
   <div class="login-modal modal-overlay state-connect">
     <div class="modal-content">
+      <div class="modal-sparkles">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
       <h1 class="modal-title">NOVA-Q <b id="kindness">LOVES</b></h1>
       <p class="modal-subtitle" id="modal-subtitle">Connect to NKN relay to begin</p>
 
@@ -382,6 +563,80 @@
   </div>
 </div>
 <script>
+initAmbientMotion();
+initSparkleField();
+
+function initAmbientMotion(){
+  const rootStyle = document.documentElement.style;
+  const pointer = {
+    currentX: 0.5,
+    currentY: 0.5,
+    targetX: 0.5,
+    targetY: 0.5,
+  };
+
+  function handlePointerMove(event){
+    const ratioX = event.clientX / window.innerWidth;
+    const ratioY = event.clientY / window.innerHeight;
+    pointer.targetX = Math.min(Math.max(ratioX, 0), 1);
+    pointer.targetY = Math.min(Math.max(ratioY, 0), 1);
+  }
+
+  function resetPointer(){
+    pointer.targetX = 0.5;
+    pointer.targetY = 0.5;
+  }
+
+  function tick(){
+    pointer.currentX += (pointer.targetX - pointer.currentX) * 0.08;
+    pointer.currentY += (pointer.targetY - pointer.currentY) * 0.08;
+    const shiftX = (pointer.currentX - 0.5) * 220;
+    const shiftY = (pointer.currentY - 0.5) * 220;
+    rootStyle.setProperty('--pointer-x', pointer.currentX.toFixed(4));
+    rootStyle.setProperty('--pointer-y', pointer.currentY.toFixed(4));
+    rootStyle.setProperty('--pointer-shift-x', `${shiftX}px`);
+    rootStyle.setProperty('--pointer-shift-y', `${shiftY}px`);
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('pointermove', handlePointerMove, { passive: true });
+  window.addEventListener('pointerleave', resetPointer);
+  window.addEventListener('pointerdown', handlePointerMove, { passive: true });
+  tick();
+}
+
+function initSparkleField(){
+  const layer = document.querySelector('.sparkles');
+  if (!layer) return;
+
+  function spawnSparkle(){
+    if (layer.childElementCount > 60) return;
+    const sparkle = document.createElement('span');
+    const size = 4 + Math.random() * 6;
+    sparkle.style.setProperty('--sparkle-size', `${size}px`);
+    const startX = Math.random() * 100;
+    const startY = Math.random() * 100;
+    sparkle.style.setProperty('--sparkle-x', `${startX}vw`);
+    sparkle.style.setProperty('--sparkle-y', `${startY}vh`);
+    const driftX = (Math.random() - 0.5) * 240;
+    const driftY = (Math.random() - 0.25) * 240;
+    sparkle.style.setProperty('--drift-x', `${driftX}px`);
+    sparkle.style.setProperty('--drift-y', `${driftY}px`);
+    const duration = 9 + Math.random() * 10;
+    const delay = Math.random() * 1.5;
+    sparkle.style.setProperty('--sparkle-duration', `${duration}s`);
+    sparkle.style.setProperty('--sparkle-delay', `${delay}s`);
+    sparkle.addEventListener('animationend', () => sparkle.remove());
+    layer.appendChild(sparkle);
+  }
+
+  for (let i = 0; i < 14; i++){
+    setTimeout(spawnSparkle, i * 180);
+  }
+
+  setInterval(spawnSparkle, 600);
+}
+
 const AUTO_LOGIN_KEY = 'loving.autologin';
 
 // Parse URL parameter for relay server endpoint
