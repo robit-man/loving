@@ -5,6 +5,7 @@
   <title>Loving Qwen Eval</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Radio+Canada:ital,wght@0,300..700;1,300..700&display=swap');
     :root {
       --bg-page: #f8f0e6;
       --bg-card: #fff9f4;
@@ -21,7 +22,7 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Radio Canada", sans-serif;
       background: radial-gradient(circle at top left, #fff1f7 0, var(--bg-page) 38%, #f4e6d7 100%);
       color: var(--text-main);
     }
@@ -51,6 +52,7 @@
     .card-title { font-size: 22px; font-weight: 600; margin: 0; }
     .card-subtitle { font-size: 14px; color: var(--text-muted); }
     .conn-bar {
+      justify-content:space-between;
       display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
       background: #fffdf9; padding: 12px 14px; border-radius: var(--radius-card);
       border: 1px dashed rgba(236, 146, 135, 0.7);
@@ -86,6 +88,7 @@
       display: flex; align-items: center; gap: 12px; justify-content: space-between;
       padding: 10px 14px; border-radius: var(--radius-card);
       border: 1px solid rgba(240, 215, 194, 0.7); background: rgba(255,255,255,0.85);
+      flex-shrink: 0;
     }
     .session-bar button {
       border-radius: 999px; border: 1px solid var(--border-subtle);
@@ -109,7 +112,7 @@
     .status-log div.ok { color: #15803d; }
     .status-log div.err { color: #be123c; }
     .chat-messages {
-      min-height: 320px; max-height: 520px; overflow-y: auto;
+      flex: 1; min-height: 0; overflow-y: auto;
       background: rgba(255,255,255,0.9); border-radius: var(--radius-card);
       border: 1px solid rgba(240, 215, 194, 0.7);
       padding: 20px; display: flex; flex-direction: column; gap: 14px;
@@ -124,7 +127,10 @@
     }
     .chat-bubble-user { background: #ffe4ef; border: 1px solid rgba(236,72,153,0.3); }
     .chat-bubble-assistant { background: rgba(255,255,255,0.95); border: 1px solid rgba(240,215,194,0.8); }
-    .chat-input-wrap { display: flex; flex-direction: column; gap: 10px; }
+    .chat-input-wrap {
+      display: flex; flex-direction: column; gap: 10px;
+      flex-shrink: 0;
+    }
     .chat-textarea {
       width: 100%; min-height: 120px; border-radius: 18px;
       border: 1px solid var(--border-subtle);
@@ -141,7 +147,10 @@
     }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
     .chat-hint { font-size: 12px; color: var(--text-muted); }
-    .chat-area { display: flex; flex-direction: column; gap: 14px; }
+    .chat-area {
+      display: flex; flex-direction: column; gap: 14px;
+      flex: 1; min-height: 0; overflow: hidden;
+    }
     .chat-area.chat-disabled { opacity: 0.55; pointer-events: none; }
     .hidden { display: none !important; }
     .modal-overlay {
@@ -165,15 +174,117 @@
     }
     .view-login .chat-interface { display: none !important; }
     .view-chat .login-modal { display: none !important; }
+
+    /* Login flow states */
+    .login-modal.state-connect .auth-section { display: none; }
+    .login-modal.state-auth .conn-bar { display: none; }
     .markdown-body { font-size: 14px; }
     .markdown-body pre {
       background: #111827; color: #f8fafc; padding: 8px 10px;
       border-radius: 8px; overflow-x: auto; font-size: 12px;
     }
+
+    /* Sessions Sidebar */
+    .chat-interface { display: flex; flex-direction: column; }
+    .app-main { display: flex; flex-direction: row; gap: 0; align-items: stretch; }
+    .sessions-sidebar {
+      width: 260px; background: rgba(255,252,249,0.95);
+      border-right: 1px solid rgba(240, 215, 194, 0.7);
+      border-radius: var(--radius-card) 0 0 var(--radius-card);
+      display: flex; flex-direction: column; gap: 12px; padding: 16px;
+      transition: margin-left 0.3s ease, opacity 0.3s ease;
+      max-height: 600px; overflow: hidden;
+    }
+    .sessions-sidebar.hidden {
+      margin-left: -260px; opacity: 0; pointer-events: none;
+    }
+    .sidebar-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-bottom: 8px; border-bottom: 1px solid rgba(240, 215, 194, 0.5);
+    }
+    .sidebar-title {
+      font-size: 14px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text-main);
+    }
+    .sidebar-toggle-btn {
+      background: transparent; border: 1px solid var(--border-subtle);
+      border-radius: 8px; padding: 6px 10px; cursor: pointer;
+      font-size: 16px; line-height: 1; color: var(--text-main);
+      transition: all 0.2s;
+    }
+    .sidebar-toggle-btn:hover {
+      background: var(--accent-soft); border-color: var(--accent);
+    }
+    .new-chat-btn {
+      width: 100%; background: linear-gradient(120deg, #f472b6, #fb7185);
+      border: none; border-radius: 999px; padding: 10px 16px;
+      font-size: 13px; font-weight: 600; color: white;
+      cursor: pointer; box-shadow: 0 6px 16px rgba(244,114,182,0.3);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .new-chat-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(244,114,182,0.4);
+    }
+    .sessions-list {
+      display: flex; flex-direction: column; gap: 6px;
+      flex: 1; overflow-y: auto; min-height: 0;
+    }
+    .session-item {
+      background: rgba(255,255,255,0.7); border: 1px solid rgba(240, 215, 194, 0.5);
+      border-radius: 10px; padding: 10px 12px; cursor: pointer;
+      transition: all 0.2s; display: flex; justify-content: space-between;
+      align-items: center; gap: 8px;
+    }
+    .session-item:hover {
+      background: rgba(255,255,255,1);
+      border-color: var(--accent); transform: translateX(4px);
+    }
+    .session-item.active {
+      background: var(--accent-soft); border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(236,72,153,0.2);
+    }
+    .session-item-content {
+      flex: 1; min-width: 0;
+    }
+    .session-item-title {
+      font-size: 13px; font-weight: 600; color: var(--text-main);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .session-item-meta {
+      font-size: 10px; color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .session-item-delete {
+      background: transparent; border: none; padding: 4px 8px;
+      cursor: pointer; font-size: 16px; color: var(--text-muted);
+      opacity: 0; transition: opacity 0.2s, color 0.2s;
+      border-radius: 6px;
+    }
+    .session-item:hover .session-item-delete {
+      opacity: 1;
+    }
+    .session-item-delete:hover {
+      color: #dc2626; background: rgba(220,38,38,0.1);
+    }
+    .card {
+      border-radius: 0 var(--radius-card) var(--radius-card) 0;
+      max-height: 600px; display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sessions-sidebar.hidden + .card {
+      border-radius: var(--radius-card);
+    }
+
     @media (max-width: 640px) {
       .card { padding: 18px 16px 16px; }
       .chat-bubble { max-width: 100%; }
       .conn-bar { flex-direction: column; align-items: stretch; }
+      .sessions-sidebar { position: absolute; z-index: 100; height: 100%; }
+      .chat-interface.sidebar-hidden .chat-main-content {
+        padding-left: 16px;
+      }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -183,17 +294,17 @@
 <div class="app-shell">
 
   <!-- Login Modal View -->
-  <div class="login-modal modal-overlay">
+  <div class="login-modal modal-overlay state-connect">
     <div class="modal-content">
       <h1 class="modal-title">Welcome to NOVA-Q</h1>
-      <p class="modal-subtitle">Secure authenticated AI chat over NKN relay</p>
+      <p class="modal-subtitle" id="modal-subtitle">Connect to NKN relay to begin</p>
 
       <div class="conn-bar" id="conn-bar">
         <label for="pubkey-input">Relay Pubkey</label>
         <input id="pubkey-input" placeholder="64 hex characters" autocomplete="off">
         <label for="relay-address">Computed Address</label>
         <input id="relay-address" readonly>
-        <button type="button" id="copy-address">Copy</button>
+        <!--<button type="button" id="copy-address">Copy</button>-->
         <button type="button" id="nkn-connect" disabled>Connect</button>
       </div>
 
@@ -237,6 +348,20 @@
       </div>
     </header>
     <main class="app-main">
+      <!-- Sessions Sidebar -->
+      <aside class="sessions-sidebar" id="sessions-sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">Chats</span>
+          <button class="sidebar-toggle-btn" id="sidebar-toggle" title="Toggle sidebar">☰</button>
+        </div>
+        <button class="new-chat-btn" id="new-chat-btn">
+          <span>+</span> New Chat
+        </button>
+        <div class="sessions-list" id="sessions-list">
+          <!-- Sessions will be rendered here -->
+        </div>
+      </aside>
+
       <section class="card">
         <div class="session-bar">
           <span id="session-status">Not signed in.</span>
@@ -260,12 +385,30 @@
 <script>
 const AUTO_LOGIN_KEY = 'loving.autologin';
 
+// Parse URL parameter for relay server endpoint
+function parseRelayFromURL(){
+  const urlParams = new URLSearchParams(window.location.search);
+  const serverParam = urlParams.get('server');
+  if (serverParam && /^[0-9a-f]{64}$/i.test(serverParam)){
+    const normalized = serverParam.toLowerCase();
+    localStorage.setItem('loving.pubkey', normalized);
+    console.log('[init] Relay pubkey loaded from URL parameter');
+    return normalized;
+  }
+  return null;
+}
+
+// Check URL parameter first, fallback to localStorage
+const urlRelay = parseRelayFromURL();
+
 const state = {
-  relayPubkey: localStorage.getItem('loving.pubkey') || '',
+  relayPubkey: urlRelay || localStorage.getItem('loving.pubkey') || '',
   relay: '',
   relayVerified: false,
   relayInfo: null,
   session: null,
+  currentSessionId: null,
+  sessions: [],
   messages: [],
   busy: false,
   nkn: {
@@ -284,13 +427,14 @@ const state = {
   },
   autoLoginTried: false,
   savedCreds: null,
-  pageRefreshInterval: null,
 };
 
 state.nkn.seed = getOrCreateSeed();
 state.savedCreds = loadSavedCreds();
 
 const els = {
+  loginModal: document.querySelector('.login-modal'),
+  modalSubtitle: document.getElementById('modal-subtitle'),
   pubkeyInput: document.getElementById('pubkey-input'),
   relayAddress: document.getElementById('relay-address'),
   copyAddress: document.getElementById('copy-address'),
@@ -299,6 +443,10 @@ const els = {
   connBar: document.getElementById('conn-bar'),
   authSection: document.getElementById('auth-section'),
   chatArea: document.getElementById('chat-area'),
+  sessionsSidebar: document.getElementById('sessions-sidebar'),
+  sidebarToggle: document.getElementById('sidebar-toggle'),
+  newChatBtn: document.getElementById('new-chat-btn'),
+  sessionsList: document.getElementById('sessions-list'),
   registerForm: document.getElementById('register-form'),
   registerUser: document.getElementById('register-username'),
   registerPass: document.getElementById('register-password'),
@@ -509,40 +657,15 @@ async function checkRelay(){
   return info;
 }
 
-function startPageLevelRefresh(){
-  stopPageLevelRefresh();
-  if (!state.session) return;
+function switchLoginModalState(newState){
+  // newState: 'connect' or 'auth'
+  els.loginModal.classList.remove('state-connect', 'state-auth');
+  els.loginModal.classList.add(`state-${newState}`);
 
-  state.pageRefreshInterval = setInterval(async () => {
-    // Only refresh if not currently busy with a stream
-    if (state.busy) return;
-
-    try {
-      const refreshData = await nknSendRequestWithRetry(
-        { event: 'chat.refresh' },
-        { maxAttempts: 1, timeoutMs: 5000 }
-      );
-      if (refreshData && refreshData.messages) {
-        // Only update if we have different content
-        const currentLength = state.messages.length;
-        const newLength = refreshData.messages.length;
-        if (newLength !== currentLength) {
-          state.messages = refreshData.messages;
-          renderHistory();
-          logActivity(`Page refresh: updated to ${newLength} messages (was ${currentLength})`);
-        }
-      }
-    } catch (err) {
-      // Silently ignore - this is background polling
-      console.warn('Page-level refresh failed:', err);
-    }
-  }, 5000); // Poll every 5 seconds when logged in
-}
-
-function stopPageLevelRefresh(){
-  if (state.pageRefreshInterval){
-    clearInterval(state.pageRefreshInterval);
-    state.pageRefreshInterval = null;
+  if (newState === 'auth') {
+    els.modalSubtitle.textContent = 'Secure authenticated AI chat over NKN relay';
+  } else {
+    els.modalSubtitle.textContent = 'Connect to NKN relay to begin';
   }
 }
 
@@ -551,12 +674,10 @@ function updateSessionUI(){
     els.sessionStatus.textContent = `Signed in as ${state.session.username}`;
     els.sendBtn.disabled = state.busy;
     switchToView('chat');
-    startPageLevelRefresh();
   } else {
     els.sessionStatus.textContent = 'Not signed in.';
     els.sendBtn.disabled = true;
     switchToView('login');
-    stopPageLevelRefresh();
   }
 }
 
@@ -581,7 +702,7 @@ function renderBubble(role, content){
   wrapper.className = `chat-message chat-message-${role}`;
   const meta = document.createElement('div');
   meta.className = 'chat-meta';
-  meta.textContent = role === 'user' ? 'You' : 'Assistant';
+  meta.textContent = role === 'user' ? 'You' : 'NOVA-Q';
   const bubble = document.createElement('div');
   bubble.className = `chat-bubble chat-bubble-${role}`;
   let body = null;
@@ -610,6 +731,8 @@ function renderHistory(){
       renderBubble('user', msg.content || '');
     }
   });
+  // Auto-scroll to bottom after rendering history
+  els.chat.scrollTop = els.chat.scrollHeight;
 }
 
 function renderMarkdown(node, text){
@@ -675,7 +798,10 @@ async function performLogin(username, password, { auto }) {
     const resp = await nknSendRequestWithRetry({ event: 'auth.login', username, password });
     const uname = resp.username || username;
     const messages = Array.isArray(resp.messages) ? resp.messages : [];
-    applyLoginSuccess(uname, messages);
+    const sessions = Array.isArray(resp.sessions) ? resp.sessions : [];
+    const currentSessionId = resp.current_session_id || null;
+
+    applyLoginSuccess(uname, sessions, currentSessionId, messages);
 
     // Save credentials for auto-login on next session
     saveCredentials(username, password);
@@ -701,9 +827,16 @@ async function performLogin(username, password, { auto }) {
   }
 }
 
-function applyLoginSuccess(username, messages){
+function applyLoginSuccess(username, sessions, currentSessionId, messages){
   state.session = { username };
-  state.messages = messages;
+  state.sessions = sessions || [];
+  state.currentSessionId = currentSessionId;
+  // Add IDs to messages from DB
+  state.messages = (messages || []).map(msg => ({
+    ...msg,
+    id: msg.id || generateMessageId()
+  }));
+  renderSessions();
   renderHistory();
   updateSessionUI();
   updateClientCount();
@@ -717,12 +850,60 @@ async function handleLogout(){
     toast(err.message || 'Logout failed', false);
   }
   state.session = null;
+  state.sessions = [];
+  state.currentSessionId = null;
   state.messages = [];
   renderHistory();
   updateSessionUI();
   // Clear saved credentials
   localStorage.removeItem(AUTO_LOGIN_KEY);
   state.savedCreds = null;
+  // Reset modal to connect state
+  switchLoginModalState('connect');
+}
+
+function generateMessageId(){
+  return `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function mergeMessages(localMessages, dbMessages){
+  // Merge DB messages with local messages, avoiding duplicates using UUIDs
+  const messageMap = new Map();
+
+  // First, add all local messages (they have UUIDs)
+  localMessages.forEach(msg => {
+    if (msg.id) {
+      messageMap.set(msg.id, msg);
+    }
+  });
+
+  // Then add DB messages, using UUID as key (backend now returns UUIDs as 'id')
+  dbMessages.forEach(msg => {
+    // If message has UUID and it's already in the map, skip
+    if (msg.id && messageMap.has(msg.id)) {
+      return;
+    }
+
+    // If no UUID, try content-based matching as fallback
+    if (!msg.id) {
+      let found = false;
+      for (const localMsg of messageMap.values()) {
+        if (localMsg.role === msg.role && localMsg.content === msg.content) {
+          found = true;
+          break;
+        }
+      }
+      if (found) return;
+
+      // Add with generated ID
+      msg = { ...msg, id: generateMessageId() };
+    }
+
+    messageMap.set(msg.id, msg);
+  });
+
+  // Convert back to array
+  return Array.from(messageMap.values());
 }
 
 async function handleSend(event){
@@ -737,50 +918,18 @@ async function handleSend(event){
   const text = (els.input.value || '').trim();
   if (!text) return;
   els.input.value = '';
-  state.messages.push({ role: 'user', content: text });
+
+  // Add user message with unique ID to prevent duplicates
+  const userMsgId = generateMessageId();
+  state.messages.push({ id: userMsgId, role: 'user', content: text });
   renderBubble('user', text);
+
   const assistantBody = renderBubble('assistant', '');
   let accumulated = '';
   let expectedSeq = 0;
   const deltaBuffer = new Map();  // seq -> delta (for out-of-order deltas)
+  const assistantMsgId = generateMessageId();
   setBusy(true);
-
-  // Periodic database refresh during streaming (fallback mechanism)
-  let refreshInterval = null;
-  const startRefreshTimer = () => {
-    refreshInterval = setInterval(async () => {
-      try {
-        const refreshData = await nknSendRequestWithRetry(
-          { event: 'chat.refresh' },
-          { maxAttempts: 1, timeoutMs: 5000 }
-        );
-        if (refreshData && refreshData.messages) {
-          // Update state.messages with database content (excluding current streaming message)
-          const dbMessages = refreshData.messages;
-          if (dbMessages.length > 0) {
-            // Check if we have more messages in DB than in our local state (excluding current)
-            if (dbMessages.length > state.messages.length) {
-              state.messages = dbMessages;
-              logActivity(`DB refresh: synced ${dbMessages.length} messages`);
-            }
-          }
-        }
-      } catch (err) {
-        // Silently ignore refresh errors - it's just a fallback mechanism
-        console.warn('DB refresh failed:', err);
-      }
-    }, 3000); // Request refresh every 3 seconds during streaming
-  };
-
-  const stopRefreshTimer = () => {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-      refreshInterval = null;
-    }
-  };
-
-  // Start the refresh timer when streaming begins
-  startRefreshTimer();
 
   const handlers = {
     onDelta(delta, seq, batchSize){
@@ -815,8 +964,6 @@ async function handleSend(event){
       els.chat.scrollTop = els.chat.scrollHeight;
     },
     onDone(totalSeq, finalContent){
-      stopRefreshTimer();
-
       // Use final content if provided (most reliable)
       if (finalContent && finalContent.length > accumulated.length) {
         accumulated = finalContent;
@@ -830,24 +977,29 @@ async function handleSend(event){
       }
 
       if (accumulated){
-        state.messages.push({ role: 'assistant', content: accumulated });
+        state.messages.push({ id: assistantMsgId, role: 'assistant', content: accumulated });
       }
       setBusy(false);
 
-      // Do final DB refresh to ensure we're in sync
+      // Do final DB refresh to ensure we're in sync (merge, don't replace)
       nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 1, timeoutMs: 5000 })
         .then(refreshData => {
-          if (refreshData && refreshData.messages) {
-            state.messages = refreshData.messages;
+          if (refreshData) {
+            if (refreshData.messages) {
+              state.messages = mergeMessages(state.messages, refreshData.messages);
+            }
+            if (refreshData.sessions) {
+              state.sessions = refreshData.sessions;
+              renderSessions();
+            }
+            if (refreshData.current_session_id) state.currentSessionId = refreshData.current_session_id;
             renderHistory();
-            logActivity(`Final DB refresh: ${refreshData.messages.length} messages`);
+            logActivity(`Final DB refresh: ${state.messages.length} messages`);
           }
         })
         .catch(err => console.warn('Final refresh failed:', err));
     },
     onError(err, isPartial){
-      stopRefreshTimer();
-
       // Always preserve partial message if we have accumulated content
       if (accumulated) {
         renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
@@ -858,14 +1010,21 @@ async function handleSend(event){
         logActivity(`Connection timeout, requesting DB refresh...`);
       }
 
-      // Auto DB refresh after error to recover content
+      // Auto DB refresh after error to recover content (merge, don't replace)
       setTimeout(() => {
         nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 })
           .then(refreshData => {
-            if (refreshData && refreshData.messages) {
-              state.messages = refreshData.messages;
+            if (refreshData) {
+              if (refreshData.messages) {
+                state.messages = mergeMessages(state.messages, refreshData.messages);
+              }
+              if (refreshData.sessions) {
+                state.sessions = refreshData.sessions;
+                renderSessions();
+              }
+              if (refreshData.current_session_id) state.currentSessionId = refreshData.current_session_id;
               renderHistory();
-              logActivity(`Auto DB refresh: restored ${refreshData.messages.length} messages`);
+              logActivity(`Auto DB refresh: restored ${state.messages.length} messages`);
               setBusy(false);
             } else {
               renderMarkdown(assistantBody, `**Error:** Unable to connect to relay`);
@@ -882,7 +1041,11 @@ async function handleSend(event){
     }
   };
 
-  streamViaNkn({ message: text }, handlers);
+  streamViaNkn({
+    message: text,
+    user_uuid: userMsgId,
+    assistant_uuid: assistantMsgId
+  }, handlers);
 }
 
 function decodePayload(payload){
@@ -1195,13 +1358,120 @@ function init(){
   // Auto-login will happen in checkRelay() after NKN connects
 }
 
+// === Session Management ===
+
+function toggleSidebar(){
+  els.sessionsSidebar.classList.toggle('hidden');
+}
+
+function renderSessions(){
+  if (!state.sessions || state.sessions.length === 0) {
+    els.sessionsList.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 12px;">No chat sessions yet</div>';
+    return;
+  }
+
+  els.sessionsList.innerHTML = state.sessions.map(session => {
+    const isActive = session.id === state.currentSessionId;
+    const title = session.title || 'New Chat';
+    const messageCount = session.message_count || 0;
+
+    return `
+      <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${session.id}">
+        <div class="session-item-content">
+          <div class="session-item-title">${title}</div>
+          <div class="session-item-meta">${messageCount} messages</div>
+        </div>
+        <button class="session-item-delete" data-session-id="${session.id}" title="Delete">×</button>
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers
+  document.querySelectorAll('.session-item').forEach(item => {
+    const sessionId = parseInt(item.dataset.sessionId);
+    item.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('session-item-delete')) {
+        switchToSession(sessionId);
+      }
+    });
+  });
+
+  document.querySelectorAll('.session-item-delete').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sessionId = parseInt(btn.dataset.sessionId);
+      deleteSession(sessionId);
+    });
+  });
+}
+
+async function createNewSession(){
+  if (!state.session) return;
+  try {
+    const resp = await nknSendRequestWithRetry({ event: 'session.create' });
+    if (resp.sessions) state.sessions = resp.sessions;
+    if (resp.current_session_id) state.currentSessionId = resp.current_session_id;
+    if (resp.messages) {
+      state.messages = (resp.messages || []).map(msg => ({ ...msg, id: msg.id || generateMessageId() }));
+    }
+    renderSessions();
+    renderHistory();
+    toast('New chat started');
+    logActivity(`Created new session ${resp.session_id}`);
+  } catch (err) {
+    toast(`Failed to create session: ${err.message}`, false);
+  }
+}
+
+async function switchToSession(sessionId){
+  if (!state.session || sessionId === state.currentSessionId) return;
+  try {
+    const resp = await nknSendRequestWithRetry({ event: 'session.switch', session_id: sessionId });
+    if (resp.current_session_id) state.currentSessionId = resp.current_session_id;
+    if (resp.messages) {
+      state.messages = (resp.messages || []).map(msg => ({ ...msg, id: msg.id || generateMessageId() }));
+    }
+    renderSessions();
+    renderHistory();
+    logActivity(`Switched to session ${sessionId}`);
+  } catch (err) {
+    toast(`Failed to switch session: ${err.message}`, false);
+  }
+}
+
+async function deleteSession(sessionId){
+  if (!state.session) return;
+  if (!confirm('Delete this chat session? This cannot be undone.')) return;
+  try {
+    const resp = await nknSendRequestWithRetry({ event: 'session.delete', session_id: sessionId });
+    if (resp.sessions) state.sessions = resp.sessions;
+    if (resp.current_session_id) state.currentSessionId = resp.current_session_id;
+    if (resp.messages) {
+      state.messages = (resp.messages || []).map(msg => ({ ...msg, id: msg.id || generateMessageId() }));
+    }
+    renderSessions();
+    renderHistory();
+    toast('Session deleted');
+    logActivity(`Deleted session ${sessionId}`);
+  } catch (err) {
+    toast(`Failed to delete session: ${err.message}`, false);
+  }
+}
+
+// === Event Handlers ===
+
 els.pubkeyInput.addEventListener('input', syncRelayInputs);
-els.copyAddress.addEventListener('click', copyAddress);
+if (els.copyAddress) els.copyAddress.addEventListener('click', copyAddress);
+els.sidebarToggle.addEventListener('click', toggleSidebar);
+els.newChatBtn.addEventListener('click', createNewSession);
 els.connectBtn.addEventListener('click', async () => {
   if (!requireRelay()) return;
   try {
     await ensureNknClient();
     await checkRelay();
+    // Switch to auth state after successful connection
+    switchLoginModalState('auth');
+    logActivity('Connected! Please login or register to continue.');
   } catch (err){
     toast(String(err), false);
   }

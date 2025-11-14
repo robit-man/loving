@@ -187,6 +187,7 @@ class Database:
                     session_id INTEGER,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    uuid TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                     FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
@@ -197,6 +198,20 @@ class Database:
             # Add session_id column to existing messages table if it doesn't exist
             try:
                 cur.execute("ALTER TABLE messages ADD COLUMN session_id INTEGER REFERENCES chat_sessions(id) ON DELETE CASCADE")
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
+            # Add uuid column to existing messages table if it doesn't exist
+            try:
+                cur.execute("ALTER TABLE messages ADD COLUMN uuid TEXT")
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
+            # Create unique index on uuid to prevent duplicates
+            try:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_uuid ON messages(uuid) WHERE uuid IS NOT NULL")
                 self._connection.commit()
             except sqlite3.OperationalError:
                 pass
@@ -303,14 +318,21 @@ class Database:
             self._connection.commit()
             return cur.rowcount > 0
 
-    def append_message(self, user_id: int, session_id: int, role: str, content: str) -> None:
+    def append_message(self, user_id: int, session_id: int, role: str, content: str, uuid: str = None) -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         with self._lock:
-            self._connection.execute(
-                "INSERT INTO messages (user_id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?);",
-                (user_id, session_id, role, content, now),
-            )
-            self._connection.commit()
+            try:
+                self._connection.execute(
+                    "INSERT INTO messages (user_id, session_id, role, content, uuid, created_at) VALUES (?, ?, ?, ?, ?, ?);",
+                    (user_id, session_id, role, content, uuid, now),
+                )
+                self._connection.commit()
+            except sqlite3.IntegrityError as e:
+                # UUID already exists, skip duplicate insert
+                if "uuid" in str(e).lower():
+                    print(f"[db] Skipped duplicate message with uuid={uuid}")
+                else:
+                    raise
         # Update session timestamp
         self.update_session_timestamp(session_id)
 
@@ -318,7 +340,7 @@ class Database:
         with self._lock:
             cur = self._connection.execute(
                 """
-                SELECT role, content
+                SELECT role, content, uuid
                 FROM messages
                 WHERE user_id = ? AND session_id = ?
                 ORDER BY id ASC
@@ -328,7 +350,7 @@ class Database:
             )
             rows = cur.fetchall()
         return [
-            {"role": row["role"], "content": row["content"]}
+            {"role": row["role"], "content": row["content"], "id": row["uuid"]}
             for row in rows
         ]
 
@@ -1047,12 +1069,17 @@ class NKNRelayServer:
             self._reply(src, req_id, "chat.error", error="empty_message")
             return
         text = text[:MAX_MESSAGE_LENGTH]
+
+        # Extract UUIDs for duplicate prevention
+        user_msg_uuid = payload.get("user_uuid")
+        assistant_msg_uuid = payload.get("assistant_uuid")
+
         print(
-            f"[chat] Start req={req_id} user={username} (user_id={user_id}) session={session_id} src={src} chars={len(text)}"
+            f"[chat] Start req={req_id} user={username} (user_id={user_id}) session={session_id} src={src} chars={len(text)} user_uuid={user_msg_uuid}"
         )
         threading.Thread(
             target=self._serve_chat,
-            args=(src, req_id, user_id, session_id, text),
+            args=(src, req_id, user_id, session_id, text, user_msg_uuid, assistant_msg_uuid),
             daemon=True,
         ).start()
 
@@ -1062,7 +1089,7 @@ class NKNRelayServer:
             if evt:
                 evt.set()
 
-    def _serve_chat(self, src: str, req_id: str, user_id: int, session_id: int, message_text: str) -> None:
+    def _serve_chat(self, src: str, req_id: str, user_id: int, session_id: int, message_text: str, user_msg_uuid: str = None, assistant_msg_uuid: str = None) -> None:
         cancel_flag = threading.Event()
         with self._lock:
             self._active[req_id] = cancel_flag
@@ -1079,7 +1106,7 @@ class NKNRelayServer:
                 title += "..."
             self._db.update_session_title(session_id, title)
 
-        self._db.append_message(user_id, session_id, "user", message_text)
+        self._db.append_message(user_id, session_id, "user", message_text, uuid=user_msg_uuid)
         system_prompt = self._prompts.get_prompt()
         assembled: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         assembled.extend(history)
@@ -1156,9 +1183,9 @@ class NKNRelayServer:
 
         full_reply = "".join(full_reply_parts).strip()
         if full_reply:
-            self._db.append_message(user_id, session_id, "assistant", full_reply)
+            self._db.append_message(user_id, session_id, "assistant", full_reply, uuid=assistant_msg_uuid)
         print(
-            f"[chat] complete req={req_id} src={src} session={session_id} reply_chars={len(full_reply)} deltas={seq_num}"
+            f"[chat] complete req={req_id} src={src} session={session_id} reply_chars={len(full_reply)} deltas={seq_num} assistant_uuid={assistant_msg_uuid}"
         )
 
 
