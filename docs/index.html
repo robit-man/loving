@@ -214,6 +214,27 @@
       flex-shrink: 0;
       box-shadow: 0 12px 35px rgba(15, 0, 10, 0.12);
     }
+    .sidebar-inline-toggle {
+      display: none;
+      border: none;
+      border-radius: 12px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--text-main);
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 10px 18px rgba(236, 146, 135, 0.25);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .sidebar-inline-toggle:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(236, 146, 135, 0.35);
+    }
+    .sessions-sidebar.hidden + .card .session-bar .sidebar-inline-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .session-bar button {
       border-radius: 999px; border: none;
       background: rgba(255, 214, 230, 0.6); color: var(--text-main); padding: 6px 14px;
@@ -544,6 +565,7 @@
 
       <section class="card">
         <div class="session-bar">
+          <button class="sidebar-inline-toggle" id="sidebar-toggle-inline" title="Show chats">☰</button>
           <span id="session-status">Not signed in.</span>
           <span id="client-count">Peers: 0</span>
           <button type="button" id="logout-btn">Sign out</button>
@@ -699,6 +721,7 @@ const els = {
   chatArea: document.getElementById('chat-area'),
   sessionsSidebar: document.getElementById('sessions-sidebar'),
   sidebarToggle: document.getElementById('sidebar-toggle'),
+  sidebarInlineToggle: document.getElementById('sidebar-toggle-inline'),
   newChatBtn: document.getElementById('new-chat-btn'),
   sessionsList: document.getElementById('sessions-list'),
   registerForm: document.getElementById('register-form'),
@@ -1918,6 +1941,7 @@ async function deleteSession(sessionId){
 els.pubkeyInput.addEventListener('input', syncRelayInputs);
 if (els.copyAddress) els.copyAddress.addEventListener('click', copyAddress);
 els.sidebarToggle.addEventListener('click', toggleSidebar);
+if (els.sidebarInlineToggle) els.sidebarInlineToggle.addEventListener('click', toggleSidebar);
 els.newChatBtn.addEventListener('click', createNewSession);
 els.connectBtn.addEventListener('click', async () => {
   if (!requireRelay()) return;
