@@ -188,6 +188,8 @@ class Database:
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     uuid TEXT,
+                    is_complete INTEGER DEFAULT 1,
+                    last_seq INTEGER DEFAULT 0,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                     FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
@@ -212,6 +214,20 @@ class Database:
             # Create unique index on uuid to prevent duplicates
             try:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_uuid ON messages(uuid) WHERE uuid IS NOT NULL")
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
+            # Add is_complete column for progressive persistence
+            try:
+                cur.execute("ALTER TABLE messages ADD COLUMN is_complete INTEGER DEFAULT 1")
+                self._connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
+            # Add last_seq column for resumable streaming
+            try:
+                cur.execute("ALTER TABLE messages ADD COLUMN last_seq INTEGER DEFAULT 0")
                 self._connection.commit()
             except sqlite3.OperationalError:
                 pass
@@ -340,7 +356,7 @@ class Database:
         with self._lock:
             cur = self._connection.execute(
                 """
-                SELECT role, content, uuid
+                SELECT role, content, uuid, is_complete, last_seq
                 FROM messages
                 WHERE user_id = ? AND session_id = ?
                 ORDER BY id ASC
@@ -350,7 +366,13 @@ class Database:
             )
             rows = cur.fetchall()
         return [
-            {"role": row["role"], "content": row["content"], "id": row["uuid"]}
+            {
+                "role": row["role"],
+                "content": row["content"],
+                "id": row["uuid"],
+                "is_complete": bool(row["is_complete"] if row["is_complete"] is not None else True),
+                "last_seq": row["last_seq"] if row["last_seq"] is not None else 0
+            }
             for row in rows
         ]
 
@@ -361,6 +383,65 @@ class Database:
                 (address, user_id),
             )
             self._connection.commit()
+
+    def upsert_partial_message(self, user_id: int, session_id: int, role: str, content: str, uuid: str, last_seq: int) -> None:
+        """Create or update a partial (streaming) message."""
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with self._lock:
+            # Check if message with this UUID already exists
+            cur = self._connection.execute(
+                "SELECT id FROM messages WHERE uuid = ?;",
+                (uuid,),
+            )
+            existing = cur.fetchone()
+
+            if existing:
+                # Update existing partial message
+                self._connection.execute(
+                    "UPDATE messages SET content = ?, last_seq = ?, is_complete = 0 WHERE uuid = ?;",
+                    (content, last_seq, uuid),
+                )
+            else:
+                # Create new partial message
+                try:
+                    self._connection.execute(
+                        "INSERT INTO messages (user_id, session_id, role, content, uuid, is_complete, last_seq, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?);",
+                        (user_id, session_id, role, content, uuid, last_seq, now),
+                    )
+                except sqlite3.IntegrityError as e:
+                    if "uuid" in str(e).lower():
+                        print(f"[db] UUID collision during upsert for uuid={uuid}")
+                    else:
+                        raise
+
+            self._connection.commit()
+        # Update session timestamp
+        self.update_session_timestamp(session_id)
+
+    def mark_message_complete(self, uuid: str, final_content: str, final_seq: int) -> None:
+        """Mark a partial message as complete."""
+        with self._lock:
+            self._connection.execute(
+                "UPDATE messages SET content = ?, last_seq = ?, is_complete = 1 WHERE uuid = ?;",
+                (final_content, final_seq, uuid),
+            )
+            self._connection.commit()
+
+    def get_partial_message(self, uuid: str) -> Optional[Dict[str, Any]]:
+        """Get partial message state for resumable streaming."""
+        with self._lock:
+            cur = self._connection.execute(
+                "SELECT content, last_seq, is_complete FROM messages WHERE uuid = ?;",
+                (uuid,),
+            )
+            row = cur.fetchone()
+        if row:
+            return {
+                "content": row["content"],
+                "last_seq": row["last_seq"],
+                "is_complete": bool(row["is_complete"]),
+            }
+        return None
 
 
 class SessionManager:
@@ -1113,17 +1194,19 @@ class NKNRelayServer:
         assembled.append({"role": "user", "content": message_text})
         self._send(src, {"event": "chat.ack", "id": req_id, "model": OLLAMA_MODEL_NAME})
 
-        # Streaming with batched deltas
+        # Streaming with batched deltas and progressive persistence
         full_reply_parts: List[str] = []
         seq_num = 0
         batch_buffer: List[str] = []
         batch_start_seq = 0
         last_send_time = time.time()
+        last_persist_time = time.time()
         batch_max_chars = 100
         batch_max_delay_ms = 50
+        persist_interval_ms = 500  # Save to DB every 500ms
 
         def flush_batch():
-            nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num
+            nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num, last_persist_time
             if not batch_buffer:
                 return
             batch_delta = "".join(batch_buffer)
@@ -1139,6 +1222,14 @@ class NKNRelayServer:
             batch_buffer = []
             batch_start_seq = seq_num
             last_send_time = time.time()
+
+            # Progressive persistence: save partial content periodically
+            accumulated = "".join(full_reply_parts)
+            time_since_persist = (time.time() - last_persist_time) * 1000
+            if time_since_persist >= persist_interval_ms and accumulated and assistant_msg_uuid:
+                self._db.upsert_partial_message(user_id, session_id, "assistant", accumulated, assistant_msg_uuid, seq_num)
+                last_persist_time = time.time()
+                print(f"[chat] Progressive save: {len(accumulated)} chars, seq={seq_num}")
 
         try:
             for delta in self._ollama.stream(assembled):
@@ -1182,8 +1273,16 @@ class NKNRelayServer:
                 self._active.pop(req_id, None)
 
         full_reply = "".join(full_reply_parts).strip()
-        if full_reply:
-            self._db.append_message(user_id, session_id, "assistant", full_reply, uuid=assistant_msg_uuid)
+        if full_reply and assistant_msg_uuid:
+            # Mark the partial message as complete (or insert if it wasn't progressively saved)
+            partial_state = self._db.get_partial_message(assistant_msg_uuid)
+            if partial_state and not partial_state["is_complete"]:
+                # Already exists as partial, mark complete
+                self._db.mark_message_complete(assistant_msg_uuid, full_reply, seq_num)
+                print(f"[chat] Marked partial message complete: {len(full_reply)} chars")
+            else:
+                # Wasn't saved progressively (very short response), insert normally
+                self._db.append_message(user_id, session_id, "assistant", full_reply, uuid=assistant_msg_uuid)
         print(
             f"[chat] complete req={req_id} src={src} session={session_id} reply_chars={len(full_reply)} deltas={seq_num} assistant_uuid={assistant_msg_uuid}"
         )

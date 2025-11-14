@@ -727,6 +727,17 @@ function renderHistory(){
     if (msg.role === 'assistant'){
       const body = renderBubble('assistant', '');
       renderMarkdown(body, msg.content || '');
+
+      // Show indicator and refresh button for incomplete messages
+      if (msg.is_complete === false) {
+        const incomplete = document.createElement('div');
+        incomplete.style.cssText = 'margin-top: 8px; padding: 6px 10px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; font-size: 11px; color: #92400e; display: flex; align-items: center; gap: 8px;';
+        incomplete.innerHTML = `
+          <span>⚠️ Incomplete (connection interrupted)</span>
+          <button onclick="refreshIncompleteMessage('${msg.id}')" style="padding: 2px 8px; background: #fbbf24; border: none; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; color: #78350f;">Refresh</button>
+        `;
+        body.parentElement.appendChild(incomplete);
+      }
     } else {
       renderBubble('user', msg.content || '');
     }
@@ -750,6 +761,22 @@ function setBusy(v){
     els.sendBtn.disabled = v;
   }
 }
+
+// Global function for incomplete message refresh
+window.refreshIncompleteMessage = async function(messageId) {
+  try {
+    toast('Refreshing message...');
+    const refreshData = await nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 });
+    if (refreshData && refreshData.messages) {
+      state.messages = mergeMessages(state.messages, refreshData.messages);
+      renderHistory();
+      toast('Message refreshed');
+      logActivity(`Refreshed incomplete message ${messageId}`);
+    }
+  } catch (err) {
+    toast('Refresh failed: ' + (err.message || err), false);
+  }
+};
 
 async function handleRegister(event){
   event.preventDefault();
@@ -879,8 +906,13 @@ function mergeMessages(localMessages, dbMessages){
 
   // Then add DB messages, using UUID as key (backend now returns UUIDs as 'id')
   dbMessages.forEach(msg => {
-    // If message has UUID and it's already in the map, skip
+    // If message has UUID and it's already in the map, update with DB version (it might be more complete)
     if (msg.id && messageMap.has(msg.id)) {
+      const existing = messageMap.get(msg.id);
+      // Update if DB version is more complete or has more content
+      if (msg.is_complete || (msg.content && msg.content.length > (existing.content || '').length)) {
+        messageMap.set(msg.id, { ...existing, ...msg });
+      }
       return;
     }
 
