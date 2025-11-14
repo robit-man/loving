@@ -498,6 +498,9 @@
       .app-main{
         padding:1rem;
       }
+      .modal-content{
+        padding:1rem;
+      }
       .card { 
         background: unset;
         width: 100%;
@@ -1085,9 +1088,12 @@ async function attemptAutoLogin(){
   await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
 }
 
-function renderBubble(role, content){
+function renderBubble(role, content, messageId){
   const wrapper = document.createElement('div');
   wrapper.className = `chat-message chat-message-${role}`;
+  if (messageId) {
+    wrapper.dataset.messageId = messageId;
+  }
   const meta = document.createElement('div');
   meta.className = 'chat-meta';
   meta.textContent = role === 'user' ? 'You' : 'NOVA-Q';
@@ -1113,7 +1119,7 @@ function renderHistory(){
   state.messages.forEach((msg) => {
     if (!msg || !msg.role) return;
     if (msg.role === 'assistant'){
-      const body = renderBubble('assistant', '');
+      const body = renderBubble('assistant', '', msg.id);
       renderMarkdown(body, msg.content || '');
 
       // Show indicator and refresh button for incomplete messages
@@ -1128,7 +1134,7 @@ function renderHistory(){
         body.parentElement.appendChild(incomplete);
       }
     } else {
-      renderBubble('user', msg.content || '');
+      renderBubble('user', msg.content || '', msg.id);
     }
   });
   // Auto-scroll to bottom after rendering history
@@ -1136,6 +1142,13 @@ function renderHistory(){
   requestAnimationFrame(() => {
     els.chat.scrollTop = els.chat.scrollHeight;
   });
+  if (typingAnimationActive && currentTypingMessageId) {
+    const activeBubble = els.chat.querySelector(`[data-message-id="${currentTypingMessageId}"] .markdown-body`);
+    if (activeBubble) {
+      currentTypingNode = activeBubble;
+      renderMarkdown(currentTypingNode, currentTypingText || '');
+    }
+  }
   // Check for incomplete messages and start auto-refresh if needed
   checkIncompleteMessages();
 }
@@ -1164,6 +1177,7 @@ let typingQueue = [];
 let typingAnimationActive = false;
 let currentTypingNode = null;
 let currentTypingText = '';
+let currentTypingMessageId = null;
 let typingSpeed = 15; // milliseconds per mini-chunk
 
 // Split text into typeable mini-chunks (by words and punctuation)
@@ -1184,12 +1198,13 @@ function splitIntoTypingChunks(text) {
   return chunks;
 }
 
-function startTypingAnimation(targetNode) {
+function startTypingAnimation(targetNode, messageId = null) {
   if (typingAnimationActive) return; // Already typing
 
   typingAnimationActive = true;
   currentTypingNode = targetNode;
   currentTypingText = '';
+  currentTypingMessageId = messageId;
 
   function typeNextChunk() {
     if (!typingAnimationActive) {
@@ -1210,6 +1225,7 @@ function startTypingAnimation(targetNode) {
       // null signals end of typing
       typingAnimationActive = false;
       typingQueue = [];
+      currentTypingMessageId = null;
       return;
     }
 
@@ -1255,6 +1271,7 @@ function endTyping() {
 function stopTyping() {
   typingAnimationActive = false;
   typingQueue = [];
+  currentTypingMessageId = null;
 }
 
 // Global function for incomplete message refresh
@@ -1486,19 +1503,28 @@ async function handleSend(event){
   // Add user message with unique ID to prevent duplicates
   const userMsgId = generateMessageId();
   state.messages.push({ id: userMsgId, role: 'user', content: text });
-  renderBubble('user', text);
+  renderBubble('user', text, userMsgId);
 
-  const assistantBody = renderBubble('assistant', '');
   let accumulated = '';
   let expectedSeq = 0;
   const deltaBuffer = new Map();  // seq -> delta (for out-of-order deltas)
   const assistantMsgId = generateMessageId();
+  const assistantBody = renderBubble('assistant', '', assistantMsgId);
+  const assistantMessage = {
+    id: assistantMsgId,
+    role: 'assistant',
+    content: '_Preparing model…_',
+    streaming: true,
+    is_complete: false,
+  };
+  state.messages.push(assistantMessage);
   setBusy(true);
 
   // Start typing animation for this assistant message
-  startTypingAnimation(assistantBody);
+  startTypingAnimation(assistantBody, assistantMsgId);
   renderMarkdown(assistantBody, '_Preparing model…_');
   setTypingPlaceholder('_Preparing model…_');
+  assistantMessage.content = '_Preparing model…_';
   const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
   setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
   let streamingNoted = false;
@@ -1549,6 +1575,9 @@ async function handleSend(event){
       if (chunkToQueue) {
         queueTypingChunk(chunkToQueue);
       }
+      assistantMessage.content = accumulated || currentTypingText || assistantMessage.content || '';
+      assistantMessage.streaming = true;
+      assistantMessage.is_complete = false;
     },
     onDone(totalSeq, finalContent){
       // Use final content if provided (most reliable)
@@ -1571,8 +1600,10 @@ async function handleSend(event){
       }
 
       if (accumulated){
-        state.messages.push({ id: assistantMsgId, role: 'assistant', content: accumulated });
+        assistantMessage.content = accumulated;
       }
+      assistantMessage.streaming = false;
+      assistantMessage.is_complete = true;
       setBusy(false);
       if (state.modelStatus.phase !== 'idle'){
         setModelStatus('idle', { model: modelLabel });
@@ -1648,6 +1679,9 @@ async function handleSend(event){
       if (state.modelStatus.phase !== 'error'){
         setModelStatus('idle', { model: modelLabel });
       }
+      assistantMessage.content = accumulated || assistantMessage.content || '';
+      assistantMessage.streaming = false;
+      assistantMessage.is_complete = false;
     },
     onStatus(statusPayload){
       applyModelStatusEvent(statusPayload);
@@ -1655,6 +1689,9 @@ async function handleSend(event){
         const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
         renderMarkdown(assistantBody, `_${desc}_`);
         setTypingPlaceholder(`_${desc}_`);
+        assistantMessage.content = `_${desc}_`;
+        assistantMessage.streaming = true;
+        assistantMessage.is_complete = false;
       }
     }
   };
