@@ -296,7 +296,7 @@
   <!-- Login Modal View -->
   <div class="login-modal modal-overlay state-connect">
     <div class="modal-content">
-      <h1 class="modal-title">Welcome to NOVA-Q</h1>
+      <h1 class="modal-title">NOVA-Q <b id="kindness">LOVES</b></h1>
       <p class="modal-subtitle" id="modal-subtitle">Connect to NKN relay to begin</p>
 
       <div class="conn-bar" id="conn-bar">
@@ -341,7 +341,6 @@
     <header class="app-header">
       <div>
         <div class="app-header-title">NOVA-Q</div>
-        <div class="app-header-sub">Authenticated chats over NKN relay · Model <code>qwen3-vl:235b</code></div>
       </div>
       <div class="app-header-right">
         <span class="status-pill ok" id="nkn-status-chat">Connected</span>
@@ -771,6 +770,98 @@ function setBusy(v){
 // Auto-refresh state
 let autoRefreshTimer = null;
 
+// Typing animation state
+let typingQueue = [];
+let typingAnimationActive = false;
+let currentTypingNode = null;
+let currentTypingText = '';
+let typingSpeed = 15; // milliseconds per mini-chunk
+
+// Split text into typeable mini-chunks (by words and punctuation)
+function splitIntoTypingChunks(text) {
+  const chunks = [];
+  let current = '';
+
+  for (let i = 0; i < text.length; i++) {
+    current += text[i];
+    // Split on whitespace or after punctuation
+    if (text[i] === ' ' || text[i] === '\n' || /[.,;:!?]/.test(text[i])) {
+      chunks.push(current);
+      current = '';
+    }
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function startTypingAnimation(targetNode) {
+  if (typingAnimationActive) return; // Already typing
+
+  typingAnimationActive = true;
+  currentTypingNode = targetNode;
+  currentTypingText = '';
+
+  function typeNextChunk() {
+    if (!typingAnimationActive) {
+      typingQueue = [];
+      return;
+    }
+
+    if (typingQueue.length === 0) {
+      // Queue is empty, wait a bit and check again
+      setTimeout(typeNextChunk, 50);
+      return;
+    }
+
+    // Get the next chunk from queue
+    const chunk = typingQueue.shift();
+
+    if (chunk === null) {
+      // null signals end of typing
+      typingAnimationActive = false;
+      typingQueue = [];
+      return;
+    }
+
+    // Split chunk into mini-chunks for smoother typing
+    const miniChunks = splitIntoTypingChunks(chunk);
+    let miniIndex = 0;
+
+    function typeMiniChunk() {
+      if (!typingAnimationActive) return;
+
+      if (miniIndex < miniChunks.length) {
+        currentTypingText += miniChunks[miniIndex];
+        renderMarkdown(currentTypingNode, currentTypingText);
+        els.chat.scrollTop = els.chat.scrollHeight;
+        miniIndex++;
+        setTimeout(typeMiniChunk, typingSpeed);
+      } else {
+        // Chunk complete, move to next chunk
+        typeNextChunk();
+      }
+    }
+
+    typeMiniChunk();
+  }
+
+  typeNextChunk();
+}
+
+function queueTypingChunk(chunk) {
+  typingQueue.push(chunk);
+}
+
+function endTyping() {
+  typingQueue.push(null); // Signal end
+}
+
+function stopTyping() {
+  typingAnimationActive = false;
+  typingQueue = [];
+}
+
 // Global function for incomplete message refresh
 window.refreshIncompleteMessage = async function(messageId) {
   try {
@@ -924,6 +1015,8 @@ async function handleLogout(){
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
+  // Stop any active typing animation
+  stopTyping();
   renderHistory();
   updateSessionUI();
   // Clear saved credentials
@@ -1007,19 +1100,27 @@ async function handleSend(event){
   const assistantMsgId = generateMessageId();
   setBusy(true);
 
+  // Start typing animation for this assistant message
+  startTypingAnimation(assistantBody);
+
   const handlers = {
     onDelta(delta, seq, batchSize){
       // Handle sequenced deltas (may be batched)
+      let chunkToQueue = '';
+
       if (seq !== undefined) {
         const deltasToAdd = batchSize || 1;
         if (seq === expectedSeq) {
           // In-order delta
           accumulated += delta || '';
+          chunkToQueue = delta || '';
           expectedSeq += deltasToAdd;
 
           // Process any buffered deltas that are now in order
           while (deltaBuffer.has(expectedSeq)) {
-            accumulated += deltaBuffer.get(expectedSeq);
+            const bufferedDelta = deltaBuffer.get(expectedSeq);
+            accumulated += bufferedDelta;
+            chunkToQueue += bufferedDelta;
             deltaBuffer.delete(expectedSeq);
             expectedSeq++;
           }
@@ -1027,6 +1128,7 @@ async function handleSend(event){
           // Out-of-order delta - buffer it
           deltaBuffer.set(seq, delta);
           logActivity(`Buffered out-of-order delta ${seq} (expected ${expectedSeq})`);
+          return; // Don't queue out-of-order deltas yet
         } else {
           // Duplicate delta - ignore
           return;
@@ -1034,18 +1136,28 @@ async function handleSend(event){
       } else {
         // Legacy: no sequence number
         accumulated += delta || '';
+        chunkToQueue = delta || '';
       }
 
-      renderMarkdown(assistantBody, accumulated);
-      els.chat.scrollTop = els.chat.scrollHeight;
+      // Queue the chunk for typing animation instead of rendering immediately
+      if (chunkToQueue) {
+        queueTypingChunk(chunkToQueue);
+      }
     },
     onDone(totalSeq, finalContent){
       // Use final content if provided (most reliable)
       if (finalContent && finalContent.length > accumulated.length) {
         accumulated = finalContent;
-        renderMarkdown(assistantBody, accumulated);
+        // Queue the remaining content that wasn't streamed
+        const remaining = finalContent.substring(currentTypingText.length);
+        if (remaining) {
+          queueTypingChunk(remaining);
+        }
         logActivity(`Final sync: updated to ${finalContent.length} chars`);
       }
+
+      // Signal end of typing animation
+      endTyping();
 
       // Check for missing deltas
       if (totalSeq !== undefined && expectedSeq < totalSeq) {
@@ -1076,14 +1188,24 @@ async function handleSend(event){
         .catch(err => console.warn('Final refresh failed:', err));
     },
     onError(err, isPartial){
-      // Always preserve partial message if we have accumulated content
-      if (accumulated) {
-        renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
-        logActivity(`Partial response received (${accumulated.length} chars), refreshing from DB...`);
+      // Queue any remaining untyped content before stopping
+      if (accumulated && accumulated.length > currentTypingText.length) {
+        const remaining = accumulated.substring(currentTypingText.length);
+        queueTypingChunk(remaining);
+        queueTypingChunk('\n\n*[Connection interrupted. Refreshing...]*');
+        endTyping(); // Let typing finish gracefully
       } else {
-        // Show loading message instead of error
-        renderMarkdown(assistantBody, `*Reconnecting and checking database...*`);
-        logActivity(`Connection timeout, requesting DB refresh...`);
+        // Stop typing animation immediately
+        stopTyping();
+        // Always preserve partial message if we have accumulated content
+        if (accumulated) {
+          renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
+          logActivity(`Partial response received (${accumulated.length} chars), refreshing from DB...`);
+        } else {
+          // Show loading message instead of error
+          renderMarkdown(assistantBody, `*Reconnecting and checking database...*`);
+          logActivity(`Connection timeout, requesting DB refresh...`);
+        }
       }
 
       // Auto DB refresh after error to recover content (merge, don't replace)
@@ -1501,6 +1623,8 @@ async function createNewSession(){
 
 async function switchToSession(sessionId){
   if (!state.session || sessionId === state.currentSessionId) return;
+  // Stop any active typing animation when switching sessions
+  stopTyping();
   try {
     const resp = await nknSendRequestWithRetry({ event: 'session.switch', session_id: sessionId });
     if (resp.current_session_id) state.currentSessionId = resp.current_session_id;
