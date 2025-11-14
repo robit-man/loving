@@ -6,4 +6,5 @@
 __*
 .venv
 venv
-nkn_bridge
+/nkn_bridge
+.nkn_bridge
