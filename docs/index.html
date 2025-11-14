@@ -239,7 +239,7 @@
     }
     .session-item:hover {
       background: rgba(255,255,255,1);
-      border-color: var(--accent); transform: translateX(4px);
+      border-color: var(--accent); transform: translateY(2px);
     }
     .session-item.active {
       background: var(--accent-soft); border-color: var(--accent);
@@ -744,7 +744,10 @@ function renderHistory(){
     }
   });
   // Auto-scroll to bottom after rendering history
-  els.chat.scrollTop = els.chat.scrollHeight;
+  // Use requestAnimationFrame to ensure DOM is fully updated, especially markdown rendering
+  requestAnimationFrame(() => {
+    els.chat.scrollTop = els.chat.scrollHeight;
+  });
   // Check for incomplete messages and start auto-refresh if needed
   checkIncompleteMessages();
 }
