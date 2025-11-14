@@ -745,6 +745,7 @@ const els = {
   connBar: document.getElementById('conn-bar'),
   authSection: document.getElementById('auth-section'),
   chatArea: document.getElementById('chat-area'),
+  chatInterface: document.querySelector('.chat-interface'),
   sessionsSidebar: document.getElementById('sessions-sidebar'),
   sidebarToggle: document.getElementById('sidebar-toggle'),
   sidebarInlineToggle: document.getElementById('sidebar-toggle-inline'),
@@ -1862,8 +1863,22 @@ function init(){
 
 // === Session Management ===
 
+function isMobileViewport(){
+  return window.matchMedia('(max-width: 640px)').matches;
+}
+
+function setSidebarHidden(hidden){
+  if (!els.sessionsSidebar) return;
+  els.sessionsSidebar.classList.toggle('hidden', hidden);
+  if (els.chatInterface) {
+    els.chatInterface.classList.toggle('sidebar-hidden', hidden);
+  }
+}
+
 function toggleSidebar(){
-  els.sessionsSidebar.classList.toggle('hidden');
+  if (!els.sessionsSidebar) return;
+  const willHide = !els.sessionsSidebar.classList.contains('hidden');
+  setSidebarHidden(willHide);
 }
 
 function renderSessions(){
@@ -1894,6 +1909,9 @@ function renderSessions(){
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('session-item-delete')) {
         switchToSession(sessionId);
+        if (isMobileViewport()) {
+          setSidebarHidden(true);
+        }
       }
     });
   });

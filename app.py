@@ -68,6 +68,8 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
 OLLAMA_CHAT_ENDPOINT = "/api/chat"
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "-1")
+OLLAMA_KEEPALIVE_INTERVAL_S = int(os.environ.get("OLLAMA_KEEPALIVE_INTERVAL", "240"))
 MAX_CONTEXT_MESSAGES = int(os.environ.get("MAX_CONTEXT", "30"))
 MAX_MESSAGE_LENGTH = 4000
 
@@ -521,15 +523,29 @@ class SystemPromptLoader:
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, endpoint: str, model_name: str, timeout_s: int) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        endpoint: str,
+        model_name: str,
+        timeout_s: int,
+        keep_alive: str,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._endpoint = endpoint
         self._model = model_name
         self._timeout = timeout_s
+        self._keep_alive = keep_alive
 
     def stream(self, messages: List[Dict[str, str]]) -> Iterable[str]:
         url = f"{self._base}{self._endpoint}"
-        payload = {"model": self._model, "messages": messages, "stream": True}
+        payload: Dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+        }
+        if self._keep_alive:
+            payload["keep_alive"] = self._keep_alive
         response = requests.post(url, json=payload, timeout=self._timeout, stream=True)
         response.raise_for_status()
 
@@ -546,6 +562,21 @@ class OllamaClient:
                 yield delta
             if data.get("done"):
                 break
+
+    def warm_model(self) -> None:
+        """Issue a lightweight keep-alive request so Ollama keeps the model in RAM."""
+        if not self._keep_alive:
+            return
+        url = f"{self._base}/api/generate"
+        payload = {
+            "model": self._model,
+            "prompt": "keepalive",
+            "stream": False,
+            "keep_alive": self._keep_alive,
+            "options": {"num_predict": 0},
+        }
+        with contextlib.suppress(Exception):
+            requests.post(url, json=payload, timeout=10)
 
 
 # === NKN Bridge =============================================================
@@ -1298,12 +1329,29 @@ ollama_client = OllamaClient(
     endpoint=OLLAMA_CHAT_ENDPOINT,
     model_name=OLLAMA_MODEL_NAME,
     timeout_s=OLLAMA_TIMEOUT_S,
+    keep_alive=OLLAMA_KEEP_ALIVE,
 )
+
+
+def start_ollama_keepalive(client: OllamaClient) -> Optional[threading.Event]:
+    if not OLLAMA_KEEP_ALIVE or OLLAMA_KEEPALIVE_INTERVAL_S <= 0:
+        return None
+
+    stop_event = threading.Event()
+
+    def _loop() -> None:
+        client.warm_model()
+        while not stop_event.wait(OLLAMA_KEEPALIVE_INTERVAL_S):
+            client.warm_model()
+
+    threading.Thread(target=_loop, name="ollama-keepalive", daemon=True).start()
+    return stop_event
 
 
 def main() -> None:
     print(f"[startup] {APP_TITLE}")
     print(f"[startup] Ollama target: {OLLAMA_BASE_URL} (model {OLLAMA_MODEL_NAME})")
+    keepalive_stop = start_ollama_keepalive(ollama_client)
     nkn_bridge = NKNBridge(NKN_BRIDGE_DIR)
     if not nkn_bridge.enabled:
         print("[error] NKN bridge unavailable (requires node + npm)")
@@ -1311,6 +1359,8 @@ def main() -> None:
 
     nkn_bridge.start()
     atexit.register(nkn_bridge.stop)
+    if keepalive_stop:
+        atexit.register(keepalive_stop.set)
     NKNRelayServer(nkn_bridge, ollama_client, system_prompts, db, sessions)
 
     addr = nkn_bridge.wait_ready(timeout=60)
