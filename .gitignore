@@ -1,0 +1,9 @@
+*.db
+*.md
+/docs/venv
+/docs/*.pem
+/docs/*.json
+__*
+.venv
+venv
+non_bridge

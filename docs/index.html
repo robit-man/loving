@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Loving Qwen Eval</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg-page: #f8f0e6;
+      --bg-card: #fff9f4;
+      --bg-input: #fdf3ea;
+      --border-subtle: #f0d7c2;
+      --text-main: #3d2b26;
+      --text-muted: #8b6f63;
+      --accent: #ec4899;
+      --accent-soft: #fce7f3;
+      --radius-card: 14px;
+      --shadow-card: 0 12px 30px rgba(60, 30, 20, 0.16);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #fff1f7 0, var(--bg-page) 38%, #f4e6d7 100%);
+      color: var(--text-main);
+    }
+    .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+    .app-header {
+      padding: 14px 20px;
+      background: linear-gradient(90deg, #fff7fb 0, #fff9f4 40%, #ffeef8 100%);
+      border-bottom: 1px solid rgba(239, 200, 184, 0.8);
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    }
+    .app-header-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #be185d; }
+    .app-header-sub { font-size: 13px; color: var(--text-muted); }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(236, 72, 153, 0.25);
+      background: rgba(252, 231, 243, 0.65); font-size: 12px;
+    }
+    .status-pill.ok { border-color: rgba(34,197,94,0.4); background: rgba(187,247,208,0.6); }
+    .status-pill.err { border-color: rgba(248,113,113,0.5); background: rgba(254,242,242,0.7); }
+    .app-main { flex: 1; padding: 24px 16px 32px; display: flex; justify-content: center; }
+    .card {
+      width: 100%; max-width: 900px; background: var(--bg-card);
+      border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+      padding: 26px 26px 24px; display: flex; flex-direction: column; gap: 20px;
+      border: 1px solid rgba(248, 219, 204, 0.7);
+    }
+    .card-title { font-size: 22px; font-weight: 600; margin: 0; }
+    .card-subtitle { font-size: 14px; color: var(--text-muted); }
+    .conn-bar {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      background: #fffdf9; padding: 12px 14px; border-radius: var(--radius-card);
+      border: 1px dashed rgba(236, 146, 135, 0.7);
+    }
+    .conn-bar label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
+    .conn-bar input {
+      border-radius: 999px; border: 1px solid var(--border-subtle);
+      background: var(--bg-input); padding: 8px 14px; font-size: 13px;
+    }
+    .conn-bar button {
+      border-radius: 999px; border: none; padding: 8px 16px; font-size: 13px;
+      background: var(--accent); color: white; cursor: pointer;
+      box-shadow: 0 10px 18px rgba(236,72,153,0.25);
+    }
+    .conn-bar button:disabled { opacity: .5; cursor: not-allowed; }
+    .auth-section { display: flex; flex-direction: column; gap: 12px; }
+    .auth-forms { display: flex; flex-direction: column; gap: 12px; }
+    .auth-card {
+      background: rgba(255,255,255,0.9); border: 1px solid rgba(240, 215, 194, 0.7);
+      border-radius: var(--radius-card); padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .auth-card label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em; }
+    .auth-card input {
+      border-radius: 999px; border: 1px solid var(--border-subtle);
+      padding: 8px 12px; font-size: 14px; background: var(--bg-input);
+    }
+    .auth-card button {
+      align-self: flex-start; padding: 8px 16px; border-radius: 999px;
+      border: none; background: linear-gradient(120deg, #f472b6, #fb7185);
+      color: #fff; cursor: pointer; box-shadow: 0 12px 24px rgba(244,114,182,0.3);
+    }
+    .session-bar {
+      display: flex; align-items: center; gap: 12px; justify-content: space-between;
+      padding: 10px 14px; border-radius: var(--radius-card);
+      border: 1px solid rgba(240, 215, 194, 0.7); background: rgba(255,255,255,0.85);
+    }
+    .session-bar button {
+      border-radius: 999px; border: 1px solid var(--border-subtle);
+      background: transparent; color: var(--text-main); padding: 6px 14px;
+      cursor: pointer;
+    }
+    .status-log {
+      border-radius: var(--radius-card);
+      border: 1px solid rgba(240, 215, 194, 0.7);
+      background: rgba(255,255,255,0.85);
+      padding: 10px 12px;
+      min-height: 48px;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .status-log div.ok { color: #15803d; }
+    .status-log div.err { color: #be123c; }
+    .chat-messages {
+      min-height: 320px; max-height: 520px; overflow-y: auto;
+      background: rgba(255,255,255,0.9); border-radius: var(--radius-card);
+      border: 1px solid rgba(240, 215, 194, 0.7);
+      padding: 20px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .chat-message { display: flex; flex-direction: column; gap: 4px; }
+    .chat-message-user { align-items: flex-end; }
+    .chat-message-assistant { align-items: flex-start; }
+    .chat-meta { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--text-muted); }
+    .chat-bubble {
+      max-width: 86%; padding: 12px 16px; border-radius: 20px;
+      font-size: 14px; line-height: 1.4; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.5);
+    }
+    .chat-bubble-user { background: #ffe4ef; border: 1px solid rgba(236,72,153,0.3); }
+    .chat-bubble-assistant { background: rgba(255,255,255,0.95); border: 1px solid rgba(240,215,194,0.8); }
+    .chat-input-wrap { display: flex; flex-direction: column; gap: 10px; }
+    .chat-textarea {
+      width: 100%; min-height: 120px; border-radius: 18px;
+      border: 1px solid var(--border-subtle);
+      padding: 14px; font-size: 14px; background: var(--bg-input);
+      resize: vertical; font-family: inherit;
+    }
+    .chat-textarea:disabled { background: #f5ebe1; }
+    .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      background: linear-gradient(120deg, #f472b6, #fb7185);
+      border: none; border-radius: 999px;
+      padding: 10px 26px; font-size: 14px; color: white; font-weight: 600;
+      box-shadow: 0 12px 24px rgba(244,114,182,0.3); cursor: pointer;
+    }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .chat-hint { font-size: 12px; color: var(--text-muted); }
+    .chat-area { display: flex; flex-direction: column; gap: 14px; }
+    .chat-area.chat-disabled { opacity: 0.55; pointer-events: none; }
+    .hidden { display: none !important; }
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: var(--bg-card); border-radius: var(--radius-card);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      padding: 32px; max-width: 500px; width: 90%;
+      border: 1px solid rgba(248, 219, 204, 0.7);
+    }
+    .modal-title {
+      font-size: 24px; font-weight: 700; margin: 0 0 8px 0;
+      color: #be185d;
+    }
+    .modal-subtitle {
+      font-size: 14px; color: var(--text-muted); margin: 0 0 24px 0;
+    }
+    .view-login .chat-interface { display: none !important; }
+    .view-chat .login-modal { display: none !important; }
+    .markdown-body { font-size: 14px; }
+    .markdown-body pre {
+      background: #111827; color: #f8fafc; padding: 8px 10px;
+      border-radius: 8px; overflow-x: auto; font-size: 12px;
+    }
+    @media (max-width: 640px) {
+      .card { padding: 18px 16px 16px; }
+      .chat-bubble { max-width: 100%; }
+      .conn-bar { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nkn-sdk@1.3.6/dist/nkn.min.js"></script>
+</head>
+<body class="view-login">
+<div class="app-shell">
+
+  <!-- Login Modal View -->
+  <div class="login-modal modal-overlay">
+    <div class="modal-content">
+      <h1 class="modal-title">Welcome to NOVA-Q</h1>
+      <p class="modal-subtitle">Secure authenticated AI chat over NKN relay</p>
+
+      <div class="conn-bar" id="conn-bar">
+        <label for="pubkey-input">Relay Pubkey</label>
+        <input id="pubkey-input" placeholder="64 hex characters" autocomplete="off">
+        <label for="relay-address">Computed Address</label>
+        <input id="relay-address" readonly>
+        <button type="button" id="copy-address">Copy</button>
+        <button type="button" id="nkn-connect" disabled>Connect</button>
+      </div>
+
+      <div class="auth-section" id="auth-section">
+        <div class="auth-forms">
+          <form id="login-form" class="auth-card">
+            <strong>Sign in to continue</strong>
+            <label for="login-username">Username</label>
+            <input id="login-username" autocomplete="username">
+            <label for="login-password">Password</label>
+            <input id="login-password" type="password" autocomplete="current-password">
+            <button type="submit">Login</button>
+            <button type="button" id="show-register" style="background: transparent; color: var(--text-muted); box-shadow: none; margin-top: 8px;">Need an account? Register</button>
+          </form>
+          <form id="register-form" class="auth-card hidden">
+            <strong>Create new account</strong>
+            <label for="register-username">Username</label>
+            <input id="register-username" autocomplete="username">
+            <label for="register-password">Password (min 6 chars)</label>
+            <input id="register-password" type="password" autocomplete="new-password">
+            <button type="submit">Register</button>
+            <button type="button" id="show-login" style="background: transparent; color: var(--text-muted); box-shadow: none; margin-top: 8px;">Have an account? Login</button>
+          </form>
+        </div>
+        <div class="status-log" id="activity-log">
+          <div>Awaiting relay pubkey…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Interface View -->
+  <div class="chat-interface">
+    <header class="app-header">
+      <div>
+        <div class="app-header-title">NOVA-Q</div>
+        <div class="app-header-sub">Authenticated chats over NKN relay · Model <code>qwen3-vl:235b</code></div>
+      </div>
+      <div class="app-header-right">
+        <span class="status-pill ok" id="nkn-status-chat">Connected</span>
+      </div>
+    </header>
+    <main class="app-main">
+      <section class="card">
+        <div class="session-bar">
+          <span id="session-status">Not signed in.</span>
+          <span id="client-count">Peers: 0</span>
+          <button type="button" id="logout-btn">Sign out</button>
+        </div>
+        <div id="chat-area" class="chat-area">
+        <div class="chat-messages" id="chat-messages"></div>
+        <form id="chat-form" class="chat-input-wrap">
+          <textarea id="chat-input" class="chat-textarea" placeholder="Offer a question or reflection for NOVA-Q…" required></textarea>
+          <div class="chat-actions">
+            <button class="btn" type="submit" id="send-btn">Send</button>
+            <div class="chat-hint">Streaming replies are stored per account.</div>
+          </div>
+        </form>
+      </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script>
+const AUTO_LOGIN_KEY = 'loving.autologin';
+
+const state = {
+  relayPubkey: localStorage.getItem('loving.pubkey') || '',
+  relay: '',
+  relayVerified: false,
+  relayInfo: null,
+  session: null,
+  messages: [],
+  busy: false,
+  nkn: {
+    seed: null,
+    client: null,
+    ready: false,
+    pending: new Map(),
+    pendingCounter: 0,
+    connectPromise: null,
+    addr: '',
+    reconnectTimer: null,
+    backoffMs: 1000,
+    baseBackoffMs: 1000,
+    maxBackoffMs: 20000,
+    healthInterval: null,
+  },
+  autoLoginTried: false,
+  savedCreds: null,
+  pageRefreshInterval: null,
+};
+
+state.nkn.seed = getOrCreateSeed();
+state.savedCreds = loadSavedCreds();
+
+const els = {
+  pubkeyInput: document.getElementById('pubkey-input'),
+  relayAddress: document.getElementById('relay-address'),
+  copyAddress: document.getElementById('copy-address'),
+  connectBtn: document.getElementById('nkn-connect'),
+  nknStatusChat: document.getElementById('nkn-status-chat'),
+  connBar: document.getElementById('conn-bar'),
+  authSection: document.getElementById('auth-section'),
+  chatArea: document.getElementById('chat-area'),
+  registerForm: document.getElementById('register-form'),
+  registerUser: document.getElementById('register-username'),
+  registerPass: document.getElementById('register-password'),
+  loginForm: document.getElementById('login-form'),
+  loginUser: document.getElementById('login-username'),
+  loginPass: document.getElementById('login-password'),
+  showRegisterBtn: document.getElementById('show-register'),
+  showLoginBtn: document.getElementById('show-login'),
+  logoutBtn: document.getElementById('logout-btn'),
+  sessionStatus: document.getElementById('session-status'),
+  clientCount: document.getElementById('client-count'),
+  activity: document.getElementById('activity-log'),
+  chat: document.getElementById('chat-messages'),
+  input: document.getElementById('chat-input'),
+  form: document.getElementById('chat-form'),
+  sendBtn: document.getElementById('send-btn'),
+};
+
+function toast(text, ok=true){
+  if (els.nknStatusChat) {
+    els.nknStatusChat.textContent = text;
+    els.nknStatusChat.className = 'status-pill ' + (ok ? 'ok' : 'err');
+  }
+  logActivity(text, ok);
+}
+
+function switchToView(viewName){
+  document.body.className = `view-${viewName}`;
+}
+
+function showLoginForm(){
+  els.loginForm.classList.remove('hidden');
+  els.registerForm.classList.add('hidden');
+}
+
+function showRegisterForm(){
+  els.registerForm.classList.remove('hidden');
+  els.loginForm.classList.add('hidden');
+}
+
+function getOrCreateSeed(){
+  let existing = localStorage.getItem('loving.nkn.seed');
+  if (existing && /^[0-9a-f]{64}$/i.test(existing)){
+    const normalized = existing.toLowerCase();
+    if (existing !== normalized){
+      localStorage.setItem('loving.nkn.seed', normalized);
+    }
+    return normalized;
+  }
+  const arr = new Uint8Array(32);
+  window.crypto.getRandomValues(arr);
+  const hex = Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+  localStorage.setItem('loving.nkn.seed', hex);
+  return hex;
+}
+
+function loadSavedCreds(){
+  try {
+    const raw = localStorage.getItem(AUTO_LOGIN_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data && data.username && data.password){
+      return { username: String(data.username), password: String(data.password) };
+    }
+  } catch (err){
+    console.warn('Failed to load auto-login creds', err);
+  }
+  return null;
+}
+
+function saveCredentials(username, password){
+  if (!username || !password) return;
+  try {
+    localStorage.setItem(
+      AUTO_LOGIN_KEY,
+      JSON.stringify({ username, password })
+    );
+    state.savedCreds = { username, password };
+  } catch (err){
+    console.warn('Failed to save creds', err);
+  }
+}
+
+function logActivity(text, ok=true){
+  if (!els.activity) return;
+  const line = document.createElement('div');
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  line.className = ok ? 'ok' : 'err';
+  els.activity.prepend(line);
+  const items = Array.from(els.activity.children);
+  items.slice(20).forEach((node) => node.remove());
+}
+
+function shouldRetryNknError(err){
+  const msg = String(err && err.message || err || '').toLowerCase();
+  return msg.includes('message timeout') || msg.includes('failed to send') || msg.includes('timeout');
+}
+
+function resetNknClient(){
+  try {
+    if (state.nkn.client && state.nkn.client.close) state.nkn.client.close();
+  } catch (_) {
+    // ignore
+  }
+  state.nkn.client = null;
+  state.nkn.ready = false;
+  state.nkn.addr = '';
+  state.nkn.connectPromise = null;
+  scheduleNknReconnect('reset');
+}
+
+function scheduleNknReconnect(reason){
+  if (state.nkn.reconnectTimer) return;
+  const delay = state.nkn.backoffMs = Math.min(state.nkn.backoffMs * 1.5, state.nkn.maxBackoffMs);
+  logActivity(`NKN reconnect scheduled (${reason}) in ${(delay/1000).toFixed(1)}s`);
+  state.nkn.reconnectTimer = setTimeout(() => {
+    state.nkn.reconnectTimer = null;
+    ensureNknClient().catch((err) => logActivity(`Reconnect failed: ${err.message || err}`, false));
+  }, delay);
+}
+
+function startNknHealthMonitor(){
+  stopNknHealthMonitor();
+  state.nkn.healthInterval = setInterval(() => {
+    if (!state.nkn.ready) return;
+    ensureRelayReady().catch((err) => logActivity(`Relay ping failed: ${err.message || err}`, false));
+  }, 20000);
+}
+
+function stopNknHealthMonitor(){
+  if (state.nkn.healthInterval){
+    clearInterval(state.nkn.healthInterval);
+    state.nkn.healthInterval = null;
+  }
+}
+
+function computeAddress(pubkey){
+  const clean = (pubkey || '').trim();
+  if (!clean) return '';
+  if (clean.includes('.') && clean.length > 10){
+    return clean;
+  }
+  return `loving-relay.${clean}`;
+}
+
+function syncRelayInputs(){
+  state.relayPubkey = (els.pubkeyInput.value || '').trim();
+  localStorage.setItem('loving.pubkey', state.relayPubkey);
+  state.relay = computeAddress(state.relayPubkey);
+  els.relayAddress.value = state.relay;
+  state.relayVerified = false;
+  state.relayInfo = null;
+  els.connectBtn.disabled = !state.relay;
+  if (!state.relay){
+    toast('Pubkey required', false);
+    state.nkn.addr = '';
+    return;
+  }
+  if (!state.nkn.ready && !state.nkn.connectPromise){
+    toast('Connecting to NKN…', true);
+    logActivity('Starting NKN connection...');
+    ensureNknClient().catch(err => {
+      toast(String(err), false);
+      logActivity(`NKN connection failed: ${err}`, false);
+    });
+  } else if (state.nkn.ready) {
+    // NKN already connected, check relay (may trigger auto-login)
+    checkRelay().catch((err) => toast(err.message || 'Relay probe failed', false));
+  }
+}
+
+function requireRelay(){
+  if (!state.relay){
+    toast('Enter relay pubkey first', false);
+    return false;
+  }
+  return true;
+}
+
+async function ensureRelayReady(){
+  if (!requireRelay()) throw new Error('Relay address required');
+  if (state.relayVerified) return state.relayInfo;
+  try {
+    return await checkRelay();
+  } catch (err){
+    state.relayVerified = false;
+    state.relayInfo = null;
+    logActivity(`Relay probe failed: ${err.message || err}`, false);
+    return null;
+  }
+}
+
+async function checkRelay(){
+  if (!requireRelay()) throw new Error('Relay address required');
+  const info = await nknSendRequestWithRetry({ event: 'relay.info' });
+  state.relayVerified = true;
+  state.relayInfo = info;
+  const summary = info && info.model ? `Relay ready · model ${info.model}` : 'Relay info received';
+  logActivity(summary, true);
+  updateClientCount();
+
+  // Attempt auto-login if we have saved credentials and haven't logged in yet
+  if (!state.session && state.savedCreds && !state.autoLoginTried){
+    logActivity('Triggering auto-login with saved credentials...');
+    await attemptAutoLogin();
+  }
+
+  return info;
+}
+
+function startPageLevelRefresh(){
+  stopPageLevelRefresh();
+  if (!state.session) return;
+
+  state.pageRefreshInterval = setInterval(async () => {
+    // Only refresh if not currently busy with a stream
+    if (state.busy) return;
+
+    try {
+      const refreshData = await nknSendRequestWithRetry(
+        { event: 'chat.refresh' },
+        { maxAttempts: 1, timeoutMs: 5000 }
+      );
+      if (refreshData && refreshData.messages) {
+        // Only update if we have different content
+        const currentLength = state.messages.length;
+        const newLength = refreshData.messages.length;
+        if (newLength !== currentLength) {
+          state.messages = refreshData.messages;
+          renderHistory();
+          logActivity(`Page refresh: updated to ${newLength} messages (was ${currentLength})`);
+        }
+      }
+    } catch (err) {
+      // Silently ignore - this is background polling
+      console.warn('Page-level refresh failed:', err);
+    }
+  }, 5000); // Poll every 5 seconds when logged in
+}
+
+function stopPageLevelRefresh(){
+  if (state.pageRefreshInterval){
+    clearInterval(state.pageRefreshInterval);
+    state.pageRefreshInterval = null;
+  }
+}
+
+function updateSessionUI(){
+  if (state.session){
+    els.sessionStatus.textContent = `Signed in as ${state.session.username}`;
+    els.sendBtn.disabled = state.busy;
+    switchToView('chat');
+    startPageLevelRefresh();
+  } else {
+    els.sessionStatus.textContent = 'Not signed in.';
+    els.sendBtn.disabled = true;
+    switchToView('login');
+    stopPageLevelRefresh();
+  }
+}
+
+function updateClientCount(){
+  if (!els.clientCount) return;
+  const info = state.relayInfo || {};
+  const count = typeof info.peer_count === 'number' ? info.peer_count : (state.session ? 1 : 0);
+  els.clientCount.textContent = `Peers: ${count}`;
+}
+
+async function attemptAutoLogin(){
+  if (state.autoLoginTried) return;
+  if (!state.savedCreds) return;
+  if (state.session) return;
+  state.autoLoginTried = true;
+  logActivity('Attempting auto login…');
+  await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
+}
+
+function renderBubble(role, content){
+  const wrapper = document.createElement('div');
+  wrapper.className = `chat-message chat-message-${role}`;
+  const meta = document.createElement('div');
+  meta.className = 'chat-meta';
+  meta.textContent = role === 'user' ? 'You' : 'Assistant';
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble chat-bubble-${role}`;
+  let body = null;
+  if (role === 'assistant'){
+    body = document.createElement('div');
+    body.className = 'markdown-body';
+    bubble.appendChild(body);
+  } else {
+    bubble.textContent = content;
+  }
+  wrapper.appendChild(meta);
+  wrapper.appendChild(bubble);
+  els.chat.appendChild(wrapper);
+  els.chat.scrollTop = els.chat.scrollHeight;
+  return body;
+}
+
+function renderHistory(){
+  els.chat.innerHTML = '';
+  state.messages.forEach((msg) => {
+    if (!msg || !msg.role) return;
+    if (msg.role === 'assistant'){
+      const body = renderBubble('assistant', '');
+      renderMarkdown(body, msg.content || '');
+    } else {
+      renderBubble('user', msg.content || '');
+    }
+  });
+}
+
+function renderMarkdown(node, text){
+  if (!node) return;
+  if (window.marked){
+    node.innerHTML = marked.parse(text || '');
+  } else {
+    node.textContent = text || '';
+  }
+}
+
+function setBusy(v){
+  state.busy = v;
+  if (state.session){
+    els.sendBtn.disabled = v;
+  }
+}
+
+async function handleRegister(event){
+  event.preventDefault();
+  if (!requireRelay()) return;
+  const username = (els.registerUser.value || '').trim();
+  const password = els.registerPass.value || '';
+  if (!username || !password){
+    toast('Username/password required', false);
+    return;
+  }
+  if (password.length < 6){
+    toast('Password must be at least 6 characters', false);
+    return;
+  }
+  await ensureRelayReady();
+  try {
+    const resp = await nknSendRequestWithRetry({ event: 'auth.register', username, password });
+    const created = resp && resp.username ? resp.username : username;
+    toast(`Account created for ${created}. Logging in...`);
+    logActivity(`Register OK (${created})`);
+    event.target.reset();
+
+    // Automatically log in after successful registration
+    await performLogin(username, password, { auto: false });
+  } catch (err){
+    toast(err.message || 'Register failed', false);
+    logActivity(`Register failed: ${err.message || err}`, false);
+  }
+}
+
+async function handleLogin(event){
+  event.preventDefault();
+  if (!requireRelay()) return;
+  const username = (els.loginUser.value || '').trim();
+  const password = els.loginPass.value || '';
+  if (!username || !password){
+    toast('Username/password required', false);
+    return;
+  }
+  await performLogin(username, password, { auto: false });
+}
+
+async function performLogin(username, password, { auto }) {
+  await ensureRelayReady();
+  try {
+    const resp = await nknSendRequestWithRetry({ event: 'auth.login', username, password });
+    const uname = resp.username || username;
+    const messages = Array.isArray(resp.messages) ? resp.messages : [];
+    applyLoginSuccess(uname, messages);
+
+    // Save credentials for auto-login on next session
+    saveCredentials(username, password);
+
+    toast(`${auto ? 'Auto-signed' : 'Signed'} in as ${uname}`);
+    logActivity(`${auto ? 'Auto login' : 'Login'} OK (${uname})`);
+    if (!auto) {
+      els.input.focus();
+      // Clear password fields after manual login
+      els.loginPass.value = '';
+      els.registerPass.value = '';
+    }
+    if (auto) state.autoLoginTried = true;
+  } catch (err){
+    toast(err.message || 'Login failed', false);
+    logActivity(`${auto ? 'Auto login' : 'Login'} failed: ${err.message || err}`, false);
+    if (auto){
+      state.autoLoginTried = true;
+      // Clear failed auto-login credentials
+      localStorage.removeItem(AUTO_LOGIN_KEY);
+      state.savedCreds = null;
+    }
+  }
+}
+
+function applyLoginSuccess(username, messages){
+  state.session = { username };
+  state.messages = messages;
+  renderHistory();
+  updateSessionUI();
+  updateClientCount();
+}
+
+async function handleLogout(){
+  if (!state.session) return;
+  try {
+    await nknSendRequestWithRetry({ event: 'auth.logout' });
+  } catch (err){
+    toast(err.message || 'Logout failed', false);
+  }
+  state.session = null;
+  state.messages = [];
+  renderHistory();
+  updateSessionUI();
+  // Clear saved credentials
+  localStorage.removeItem(AUTO_LOGIN_KEY);
+  state.savedCreds = null;
+}
+
+async function handleSend(event){
+  event.preventDefault();
+  if (!state.session){
+    toast('Sign in first', false);
+    return;
+  }
+  if (!requireRelay()) return;
+  await ensureRelayReady();
+  if (state.busy) return;
+  const text = (els.input.value || '').trim();
+  if (!text) return;
+  els.input.value = '';
+  state.messages.push({ role: 'user', content: text });
+  renderBubble('user', text);
+  const assistantBody = renderBubble('assistant', '');
+  let accumulated = '';
+  let expectedSeq = 0;
+  const deltaBuffer = new Map();  // seq -> delta (for out-of-order deltas)
+  setBusy(true);
+
+  // Periodic database refresh during streaming (fallback mechanism)
+  let refreshInterval = null;
+  const startRefreshTimer = () => {
+    refreshInterval = setInterval(async () => {
+      try {
+        const refreshData = await nknSendRequestWithRetry(
+          { event: 'chat.refresh' },
+          { maxAttempts: 1, timeoutMs: 5000 }
+        );
+        if (refreshData && refreshData.messages) {
+          // Update state.messages with database content (excluding current streaming message)
+          const dbMessages = refreshData.messages;
+          if (dbMessages.length > 0) {
+            // Check if we have more messages in DB than in our local state (excluding current)
+            if (dbMessages.length > state.messages.length) {
+              state.messages = dbMessages;
+              logActivity(`DB refresh: synced ${dbMessages.length} messages`);
+            }
+          }
+        }
+      } catch (err) {
+        // Silently ignore refresh errors - it's just a fallback mechanism
+        console.warn('DB refresh failed:', err);
+      }
+    }, 3000); // Request refresh every 3 seconds during streaming
+  };
+
+  const stopRefreshTimer = () => {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+    }
+  };
+
+  // Start the refresh timer when streaming begins
+  startRefreshTimer();
+
+  const handlers = {
+    onDelta(delta, seq, batchSize){
+      // Handle sequenced deltas (may be batched)
+      if (seq !== undefined) {
+        const deltasToAdd = batchSize || 1;
+        if (seq === expectedSeq) {
+          // In-order delta
+          accumulated += delta || '';
+          expectedSeq += deltasToAdd;
+
+          // Process any buffered deltas that are now in order
+          while (deltaBuffer.has(expectedSeq)) {
+            accumulated += deltaBuffer.get(expectedSeq);
+            deltaBuffer.delete(expectedSeq);
+            expectedSeq++;
+          }
+        } else if (seq > expectedSeq) {
+          // Out-of-order delta - buffer it
+          deltaBuffer.set(seq, delta);
+          logActivity(`Buffered out-of-order delta ${seq} (expected ${expectedSeq})`);
+        } else {
+          // Duplicate delta - ignore
+          return;
+        }
+      } else {
+        // Legacy: no sequence number
+        accumulated += delta || '';
+      }
+
+      renderMarkdown(assistantBody, accumulated);
+      els.chat.scrollTop = els.chat.scrollHeight;
+    },
+    onDone(totalSeq, finalContent){
+      stopRefreshTimer();
+
+      // Use final content if provided (most reliable)
+      if (finalContent && finalContent.length > accumulated.length) {
+        accumulated = finalContent;
+        renderMarkdown(assistantBody, accumulated);
+        logActivity(`Final sync: updated to ${finalContent.length} chars`);
+      }
+
+      // Check for missing deltas
+      if (totalSeq !== undefined && expectedSeq < totalSeq) {
+        logActivity(`Warning: Missing deltas. Expected ${totalSeq}, received ${expectedSeq}`, false);
+      }
+
+      if (accumulated){
+        state.messages.push({ role: 'assistant', content: accumulated });
+      }
+      setBusy(false);
+
+      // Do final DB refresh to ensure we're in sync
+      nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 1, timeoutMs: 5000 })
+        .then(refreshData => {
+          if (refreshData && refreshData.messages) {
+            state.messages = refreshData.messages;
+            renderHistory();
+            logActivity(`Final DB refresh: ${refreshData.messages.length} messages`);
+          }
+        })
+        .catch(err => console.warn('Final refresh failed:', err));
+    },
+    onError(err, isPartial){
+      stopRefreshTimer();
+
+      // Always preserve partial message if we have accumulated content
+      if (accumulated) {
+        renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
+        logActivity(`Partial response received (${accumulated.length} chars), refreshing from DB...`);
+      } else {
+        // Show loading message instead of error
+        renderMarkdown(assistantBody, `*Reconnecting and checking database...*`);
+        logActivity(`Connection timeout, requesting DB refresh...`);
+      }
+
+      // Auto DB refresh after error to recover content
+      setTimeout(() => {
+        nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 })
+          .then(refreshData => {
+            if (refreshData && refreshData.messages) {
+              state.messages = refreshData.messages;
+              renderHistory();
+              logActivity(`Auto DB refresh: restored ${refreshData.messages.length} messages`);
+              setBusy(false);
+            } else {
+              renderMarkdown(assistantBody, `**Error:** Unable to connect to relay`);
+              setBusy(false);
+            }
+          })
+          .catch(refreshErr => {
+            console.warn('Auto DB refresh failed:', refreshErr);
+            renderMarkdown(assistantBody, `**Error:** ${err.message || err}`);
+            logActivity(`DB refresh failed: ${refreshErr.message || refreshErr}`, false);
+            setBusy(false);
+          });
+      }, 500); // Small delay to allow any pending writes to complete
+    }
+  };
+
+  streamViaNkn({ message: text }, handlers);
+}
+
+function decodePayload(payload){
+  if (typeof payload === 'string') return payload;
+  if (payload instanceof Uint8Array) return new TextDecoder().decode(payload);
+  if (payload && payload.payload) return decodePayload(payload.payload);
+  return '';
+}
+
+async function ensureNknClient(){
+  if (state.nkn.client && state.nkn.ready) return state.nkn.client;
+  if (state.nkn.connectPromise) return state.nkn.connectPromise;
+  if (!window.nkn || !window.nkn.MultiClient){
+    throw new Error('nkn-sdk not loaded');
+  }
+  toast('Connecting to NKN…', true);
+  const promise = new Promise((resolve, reject) => {
+    try {
+      const client = new window.nkn.MultiClient({
+        identifier: 'loving-web',
+        seed: state.nkn.seed,
+        numSubClients: 10,
+        msgCacheSize: 2048,
+        reconnectIntervalMin: 1000,
+        reconnectIntervalMax: 6000,
+      });
+      state.nkn.client = client;
+      let resolved = false;
+      client.on('connect', () => {
+        state.nkn.ready = true;
+        state.nkn.addr = String(client.addr || '');
+        toast(state.nkn.addr ? `NKN connected · ${state.nkn.addr.slice(0, 12)}…` : 'NKN connected');
+
+        // Check relay and trigger auto-login if credentials are saved
+        checkRelay()
+          .then(() => {
+            // Auto-login happens in checkRelay if conditions are met
+            if (state.session) {
+              logActivity('Auto-login successful');
+            }
+          })
+          .catch((err) => toast(err.message || 'Relay probe failed', false));
+
+        state.nkn.backoffMs = state.nkn.baseBackoffMs;
+        if (state.nkn.reconnectTimer){
+          clearTimeout(state.nkn.reconnectTimer);
+          state.nkn.reconnectTimer = null;
+        }
+        startNknHealthMonitor();
+        if (!resolved){ resolved = true; resolve(client); }
+      });
+      client.onMessage(({src, payload, payloadType}) => handleNknMessage(src, payload));
+      client.on('close', () => {
+        state.nkn.ready = false;
+        state.nkn.client = null;
+        state.nkn.addr = '';
+        toast('NKN disconnected', false);
+        stopNknHealthMonitor();
+        scheduleNknReconnect('close');
+      });
+      client.on('error', (err) => {
+        console.error('nkn error', err);
+        state.nkn.ready = false;
+        state.nkn.addr = '';
+        toast('NKN error', false);
+        stopNknHealthMonitor();
+        scheduleNknReconnect('error');
+        if (!resolved){ resolved = true; reject(err); }
+      });
+    } catch (err){
+      reject(err);
+    }
+  });
+  state.nkn.connectPromise = promise.finally(() => { state.nkn.connectPromise = null; });
+  return promise;
+}
+
+function handleNknMessage(src, payload){
+  const text = decodePayload(payload);
+  let data;
+  try { data = JSON.parse(text); }
+  catch {
+    // Return false to prevent auto-ACK for malformed messages
+    return false;
+  }
+  const event = data.event;
+  const reqId = data.id;
+  if (!reqId){
+    if (event === 'relay.info'){
+      toast('Relay info received');
+    }
+    // Return false - no auto-ACK needed
+    return false;
+  }
+  const ctx = state.nkn.pending.get(reqId);
+  if (!ctx) {
+    // Return false - message not for us
+    return false;
+  }
+
+  if (ctx.kind === 'stream'){
+    if (event === 'chat.delta'){
+      // Pass delta with sequence number and batch size
+      ctx.handlers.onDelta(data.delta || '', data.seq, data.batch_size);
+    } else if (event === 'chat.done'){
+      ctx.handlers.onDone(data.total_seq, data.final_content);
+      state.nkn.pending.delete(reqId);
+      logActivity(`Chat stream done (${reqId})`);
+    } else if (event === 'chat.error'){
+      // Pass error with partial flag
+      ctx.handlers.onError(new Error(data.error || 'relay error'), data.partial);
+      state.nkn.pending.delete(reqId);
+      logActivity(`Chat stream error (${data.error || 'unknown'})`, false);
+    } else if (event === 'chat.ack'){
+      // ignore
+    }
+  } else if (ctx.kind === 'request'){
+    clearTimeout(ctx.timer);
+    state.nkn.pending.delete(reqId);
+    if (event && event.endsWith('.error')){
+      const errMsg = data.message || data.error || 'relay error';
+      logActivity(`DM error (${event}): ${errMsg}`, false);
+      ctx.reject(new Error(errMsg));
+    } else if (event === 'chat.error'){
+      const errMsg = data.error || 'relay error';
+      logActivity(`DM error (${errMsg})`, false);
+      ctx.reject(new Error(errMsg));
+    } else {
+      logActivity(`DM ← ${event || 'response'} (${reqId})`);
+      ctx.resolve(data);
+    }
+  }
+
+  // Return false to prevent automatic ACK - we handle responses manually
+  return false;
+}
+
+async function nknSendRequest(body, timeoutMs=20000){
+  if (!requireRelay()) throw new Error('Relay address required');
+  const maxAttempts = 3;
+
+  async function dispatch(attempt){
+    const id = `req-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+    logActivity(`DM → ${body.event || 'request'} (${id})`);
+    const client = await ensureNknClient();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        state.nkn.pending.delete(id);
+        reject(new Error('Relay request timeout'));
+      }, timeoutMs);
+      state.nkn.pending.set(id, { kind: 'request', resolve, reject, timer });
+      client.send(state.relay, JSON.stringify(Object.assign({ id }, body))).catch((err) => {
+        clearTimeout(timer);
+        state.nkn.pending.delete(id);
+        if (attempt < maxAttempts && shouldRetryNknError(err)){
+          logActivity(`Send failed (${err.message || err}). Retrying…`, false);
+          resetNknClient();
+          dispatch(attempt + 1).then(resolve).catch(reject);
+        } else {
+          reject(err);
+        }
+      });
+    });
+  }
+
+  return dispatch(1);
+}
+
+async function nknSendRequestWithRetry(body, options = {}){
+  const maxAttempts = options.maxAttempts || 5;
+  const timeoutMs = options.timeoutMs || 20000;
+  const backoffMs = options.backoffMs || 1000;
+
+  if (!requireRelay()) throw new Error('Relay address required');
+  await ensureNknClient();
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++){
+    try {
+      const id = `req-${Date.now()}-${Math.floor(Math.random()*10000)}`;
+      logActivity(`SYN → ${body.event || 'request'} attempt ${attempt}/${maxAttempts} (${id})`);
+
+      const client = state.nkn.client;
+      if (!client) throw new Error('NKN client not ready');
+
+      const response = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          state.nkn.pending.delete(id);
+          reject(new Error('Relay request timeout'));
+        }, timeoutMs);
+
+        state.nkn.pending.set(id, {
+          kind: 'request',
+          resolve: (data) => {
+            clearTimeout(timer);
+            resolve(data);
+          },
+          reject: (err) => {
+            clearTimeout(timer);
+            reject(err);
+          },
+          timer,
+          attempt,
+          startTime: Date.now()
+        });
+
+        const message = Object.assign({ id }, body);
+        client.send(state.relay, JSON.stringify(message)).catch((sendErr) => {
+          clearTimeout(timer);
+          state.nkn.pending.delete(id);
+          reject(sendErr);
+        });
+      });
+
+      logActivity(`ACK ← ${body.event || 'response'} (${id})`, true);
+      return response;
+
+    } catch (err){
+      const isLastAttempt = attempt >= maxAttempts;
+      const shouldRetry = shouldRetryNknError(err);
+
+      if (isLastAttempt || !shouldRetry){
+        logActivity(`Request failed after ${attempt} attempts: ${err.message || err}`, false);
+        throw err;
+      }
+
+      const delay = backoffMs * Math.pow(1.5, attempt - 1);
+      logActivity(`Retry ${attempt}/${maxAttempts} failed (${err.message}), waiting ${delay}ms...`, false);
+      await new Promise(resolve => setTimeout(resolve, delay));
+
+      // Ensure NKN client is healthy before retry
+      try {
+        await ensureNknClient();
+      } catch (clientErr){
+        logActivity(`NKN client recovery failed: ${clientErr.message}`, false);
+      }
+    }
+  }
+
+  throw new Error('Request failed after all retry attempts');
+}
+
+async function streamViaNkn(payload, handlers){
+  if (!requireRelay()){
+    handlers.onError(new Error('Relay address required'));
+    return;
+  }
+  const maxAttempts = 3;
+
+  async function dispatch(attempt){
+    const client = await ensureNknClient();
+    const reqId = `chat-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+    state.nkn.pending.set(reqId, { kind: 'stream', handlers });
+    const message = Object.assign({ event: 'chat.begin', id: reqId }, payload);
+    logActivity(`Chat stream start (${reqId})`);
+    try {
+      await client.send(state.relay, JSON.stringify(message));
+    } catch (err){
+      state.nkn.pending.delete(reqId);
+      if (attempt < maxAttempts && shouldRetryNknError(err)){
+        logActivity(`Chat send failed (${err.message || err}). Retrying…`, false);
+        resetNknClient();
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt)); // Backoff
+        return dispatch(attempt + 1);
+      }
+      throw err;
+    }
+    return reqId;
+  }
+
+  try {
+    await dispatch(1);
+  } catch (err){
+    // On complete send failure, trigger auto-refresh instead of showing error
+    logActivity(`Chat send failed after retries, triggering auto DB refresh...`, false);
+    handlers.onError(err);
+  }
+}
+
+function copyAddress(){
+  if (!state.relay){
+    toast('No address to copy', false);
+    return;
+  }
+  if (!navigator.clipboard){
+    toast('Clipboard unavailable', false);
+    return;
+  }
+  navigator.clipboard.writeText(state.relay).then(() => {
+    toast('Relay address copied');
+  }).catch((err) => {
+    toast('Copy failed', false);
+    console.error(err);
+  });
+}
+
+function init(){
+  els.pubkeyInput.value = state.relayPubkey;
+
+  // Pre-fill login form with saved credentials
+  if (state.savedCreds){
+    els.loginUser.value = state.savedCreds.username || '';
+    els.loginPass.value = state.savedCreds.password || '';
+    logActivity('Saved credentials loaded');
+  }
+
+  syncRelayInputs();
+  renderHistory();
+  updateSessionUI();
+
+  // Auto-login will happen in checkRelay() after NKN connects
+}
+
+els.pubkeyInput.addEventListener('input', syncRelayInputs);
+els.copyAddress.addEventListener('click', copyAddress);
+els.connectBtn.addEventListener('click', async () => {
+  if (!requireRelay()) return;
+  try {
+    await ensureNknClient();
+    await checkRelay();
+  } catch (err){
+    toast(String(err), false);
+  }
+});
+els.registerForm.addEventListener('submit', handleRegister);
+els.loginForm.addEventListener('submit', handleLogin);
+els.logoutBtn.addEventListener('click', handleLogout);
+els.form.addEventListener('submit', handleSend);
+els.showRegisterBtn.addEventListener('click', showRegisterForm);
+els.showLoginBtn.addEventListener('click', showLoginForm);
+
+init();
+</script>
+</body>
+</html>
