@@ -193,7 +193,7 @@
       border-radius: var(--radius-card) 0 0 var(--radius-card);
       display: flex; flex-direction: column; gap: 12px; padding: 16px;
       transition: margin-left 0.3s ease, opacity 0.3s ease;
-      max-height: 600px; overflow: hidden;
+      max-height: calc(100vh - 150px); overflow: hidden;
     }
     .sessions-sidebar.hidden {
       margin-left: -260px; opacity: 0; pointer-events: none;
@@ -270,7 +270,7 @@
     }
     .card {
       border-radius: 0 var(--radius-card) var(--radius-card) 0;
-      max-height: 600px; display: flex; flex-direction: column;
+      max-height: calc(100vh - 150px); display: flex; flex-direction: column;
       overflow: hidden;
     }
     .sessions-sidebar.hidden + .card {
@@ -732,9 +732,10 @@ function renderHistory(){
       if (msg.is_complete === false) {
         const incomplete = document.createElement('div');
         incomplete.style.cssText = 'margin-top: 8px; padding: 6px 10px; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; font-size: 11px; color: #92400e; display: flex; align-items: center; gap: 8px;';
+        const isAutoRefreshing = autoRefreshTimer !== null;
         incomplete.innerHTML = `
-          <span>⚠️ Incomplete (connection interrupted)</span>
-          <button onclick="refreshIncompleteMessage('${msg.id}')" style="padding: 2px 8px; background: #fbbf24; border: none; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; color: #78350f;">Refresh</button>
+          <span>${isAutoRefreshing ? '🔄' : '⚠️'} ${isAutoRefreshing ? 'Auto-recovering...' : 'Incomplete (connection interrupted)'}</span>
+          <button onclick="refreshIncompleteMessage('${msg.id}')" style="padding: 2px 8px; background: #fbbf24; border: none; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; color: #78350f;">Refresh Now</button>
         `;
         body.parentElement.appendChild(incomplete);
       }
@@ -744,6 +745,8 @@ function renderHistory(){
   });
   // Auto-scroll to bottom after rendering history
   els.chat.scrollTop = els.chat.scrollHeight;
+  // Check for incomplete messages and start auto-refresh if needed
+  checkIncompleteMessages();
 }
 
 function renderMarkdown(node, text){
@@ -762,21 +765,54 @@ function setBusy(v){
   }
 }
 
+// Auto-refresh state
+let autoRefreshTimer = null;
+
 // Global function for incomplete message refresh
 window.refreshIncompleteMessage = async function(messageId) {
   try {
-    toast('Refreshing message...');
-    const refreshData = await nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 });
+    const refreshData = await nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 2, timeoutMs: 5000 });
     if (refreshData && refreshData.messages) {
       state.messages = mergeMessages(state.messages, refreshData.messages);
       renderHistory();
-      toast('Message refreshed');
+      if (messageId !== 'auto') {
+        toast('Message refreshed');
+      }
       logActivity(`Refreshed incomplete message ${messageId}`);
     }
   } catch (err) {
-    toast('Refresh failed: ' + (err.message || err), false);
+    if (messageId !== 'auto') {
+      toast('Refresh failed: ' + (err.message || err), false);
+    }
+    console.warn('Auto-refresh failed:', err);
   }
 };
+
+// Check for incomplete messages and start/stop auto-refresh
+function checkIncompleteMessages() {
+  const hasIncomplete = state.messages.some(msg => msg.is_complete === false);
+
+  if (hasIncomplete && !autoRefreshTimer) {
+    // Start auto-refresh timer
+    logActivity('Auto-refresh started for incomplete messages');
+    autoRefreshTimer = setInterval(async () => {
+      const stillIncomplete = state.messages.some(msg => msg.is_complete === false);
+      if (stillIncomplete) {
+        await window.refreshIncompleteMessage('auto');
+      } else {
+        // All complete, stop timer
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+        logActivity('Auto-refresh stopped - all messages complete');
+      }
+    }, 1000); // Every 1 second
+  } else if (!hasIncomplete && autoRefreshTimer) {
+    // Stop auto-refresh timer
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    logActivity('Auto-refresh stopped - all messages complete');
+  }
+}
 
 async function handleRegister(event){
   event.preventDefault();
@@ -880,6 +916,11 @@ async function handleLogout(){
   state.sessions = [];
   state.currentSessionId = null;
   state.messages = [];
+  // Clear auto-refresh timer
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
   renderHistory();
   updateSessionUI();
   // Clear saved credentials
@@ -1514,6 +1555,14 @@ els.logoutBtn.addEventListener('click', handleLogout);
 els.form.addEventListener('submit', handleSend);
 els.showRegisterBtn.addEventListener('click', showRegisterForm);
 els.showLoginBtn.addEventListener('click', showLoginForm);
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+});
 
 init();
 </script>
