@@ -298,9 +298,24 @@
     .chat-bubble {
       max-width: 86%; padding: 12px 16px; border-radius: 20px;
       font-size: 14px; line-height: 1.4; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.5);
+      position: relative;
+      overflow: hidden;
     }
     .chat-bubble-user { background: #ffe4ef; border: 1px solid rgba(236,72,153,0.3); }
     .chat-bubble-assistant { background: rgba(255,255,255,0.95); border: 1px solid rgba(240,215,194,0.8); }
+    .typing-reveal {
+      position: absolute;
+      inset: 0;
+      background: inherit;
+      transform-origin: left;
+      animation: typingReveal 260ms ease-out forwards;
+      pointer-events: none;
+      z-index: 2;
+    }
+    @keyframes typingReveal {
+      0% { transform: scaleX(1); }
+      100% { transform: scaleX(0); }
+    }
     .chat-input-wrap {
       display: flex; flex-direction: column; gap: 10px;
       flex-shrink: 0;
@@ -391,7 +406,10 @@
     /* Login flow states */
     .login-modal.state-connect .auth-section { display: none; }
     .login-modal.state-auth .conn-bar { display: none; }
-    .markdown-body { font-size: 14px; }
+    .markdown-body {
+      font-size: 14px;
+      position: relative;
+    }
     .markdown-body pre {
       background: #111827; color: #f8fafc; padding: 8px 10px;
       border-radius: 8px; overflow-x: auto; font-size: 12px;
@@ -1105,6 +1123,7 @@ function renderBubble(role, content, messageId){
     bubble.appendChild(body);
   } else {
     bubble.textContent = content;
+    recordDisplayedMessageContent(messageId, content);
   }
   wrapper.appendChild(meta);
   wrapper.appendChild(bubble);
@@ -1114,12 +1133,14 @@ function renderBubble(role, content, messageId){
 }
 
 function renderHistory(){
+  displayedMessageContents.clear();
   els.chat.innerHTML = '';
   state.messages.forEach((msg) => {
     if (!msg || !msg.role) return;
-    if (msg.role === 'assistant'){
-      const body = renderBubble('assistant', '', msg.id);
-      renderMarkdown(body, msg.content || '');
+      if (msg.role === 'assistant'){
+        const body = renderBubble('assistant', '', msg.id);
+        renderMarkdown(body, msg.content || '');
+        recordDisplayedMessageContent(msg.id, msg.content || '');
 
       // Show indicator and refresh button for incomplete messages
       if (msg.is_complete === false) {
@@ -1170,6 +1191,12 @@ function setBusy(v){
 
 // Auto-refresh state
 let autoRefreshTimer = null;
+const displayedMessageContents = new Map();
+
+function recordDisplayedMessageContent(messageId, text) {
+  if (!messageId) return;
+  displayedMessageContents.set(messageId, text || '');
+}
 
 // Typing animation state
 let typingQueue = [];
@@ -1177,109 +1204,123 @@ let typingAnimationActive = false;
 let currentTypingNode = null;
 let currentTypingText = '';
 let currentTypingMessageId = null;
-let typingSpeed = 15; // milliseconds per mini-chunk
+let typingChunkInProgress = false;
 
-// Split text into typeable mini-chunks (by words and punctuation)
-function splitIntoTypingChunks(text) {
-  const chunks = [];
-  let current = '';
-
-  for (let i = 0; i < text.length; i++) {
-    current += text[i];
-    // Split on whitespace or after punctuation
-    if (text[i] === ' ' || text[i] === '\n' || /[.,;:!?]/.test(text[i])) {
-      chunks.push(current);
-      current = '';
-    }
-  }
-
-  if (current) chunks.push(current);
-  return chunks;
-}
-
-function startTypingAnimation(targetNode, messageId = null) {
+function startTypingAnimation(targetNode, messageId = null, initialText = '') {
   if (typingAnimationActive) return; // Already typing
 
   typingAnimationActive = true;
   currentTypingNode = targetNode;
-  currentTypingText = '';
+  currentTypingText = initialText || '';
   currentTypingMessageId = messageId;
-
-  function typeNextChunk() {
-    if (!typingAnimationActive) {
-      typingQueue = [];
-      return;
-    }
-
-    if (typingQueue.length === 0) {
-      // Queue is empty, wait a bit and check again
-      setTimeout(typeNextChunk, 50);
-      return;
-    }
-
-    // Get the next chunk from queue
-    const chunk = typingQueue.shift();
-
-    if (chunk === null) {
-      // null signals end of typing
-      typingAnimationActive = false;
-      typingQueue = [];
-      currentTypingMessageId = null;
-      return;
-    }
-
-    // Split chunk into mini-chunks for smoother typing
-    const miniChunks = splitIntoTypingChunks(chunk);
-    let miniIndex = 0;
-
-    function typeMiniChunk() {
-      if (!typingAnimationActive) return;
-
-      if (miniIndex < miniChunks.length) {
-        currentTypingText += miniChunks[miniIndex];
-        renderMarkdown(currentTypingNode, currentTypingText);
-        els.chat.scrollTop = els.chat.scrollHeight;
-        miniIndex++;
-        setTimeout(typeMiniChunk, typingSpeed);
-      } else {
-        // Chunk complete, move to next chunk
-        typeNextChunk();
-      }
-    }
-
-    typeMiniChunk();
+  if (currentTypingNode) {
+    renderMarkdown(currentTypingNode, currentTypingText);
+    recordDisplayedMessageContent(currentTypingMessageId, currentTypingText);
   }
 
-  typeNextChunk();
+  processTypingQueue();
+}
+
+async function processTypingQueue() {
+  if (!typingAnimationActive) {
+    typingQueue = [];
+    typingChunkInProgress = false;
+    return;
+  }
+
+  if (typingChunkInProgress) {
+    return;
+  }
+
+  if (typingQueue.length === 0) {
+    setTimeout(() => processTypingQueue(), 50);
+    return;
+  }
+
+  const chunk = typingQueue.shift();
+  if (chunk === null) {
+    typingAnimationActive = false;
+    typingQueue = [];
+    currentTypingMessageId = null;
+    typingChunkInProgress = false;
+    return;
+  }
+
+  typingChunkInProgress = true;
+  await typeChunk(chunk);
+  typingChunkInProgress = false;
+  processTypingQueue();
+}
+
+async function typeChunk(chunk) {
+  if (!chunk) return;
+  currentTypingText += chunk;
+  renderMarkdown(currentTypingNode, currentTypingText);
+  recordDisplayedMessageContent(currentTypingMessageId, currentTypingText);
+  els.chat.scrollTop = els.chat.scrollHeight;
+  await revealChunkAnimation();
+}
+
+async function revealChunkAnimation() {
+  if (!currentTypingNode) return;
+  return new Promise((resolve) => {
+    const overlay = document.createElement('span');
+    overlay.className = 'typing-reveal';
+    let finished = false;
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      if (overlay.parentElement) {
+        overlay.remove();
+      }
+      resolve();
+    };
+    overlay.addEventListener('animationend', cleanup, { once: true });
+    currentTypingNode.appendChild(overlay);
+    setTimeout(cleanup, 400);
+  });
 }
 
 function queueTypingChunk(chunk) {
   typingQueue.push(chunk);
+  if (typingAnimationActive) {
+    processTypingQueue();
+  }
 }
 
-function setTypingPlaceholder(text) {
-  if (!typingAnimationActive || !currentTypingNode) return;
-  currentTypingText = text;
-  renderMarkdown(currentTypingNode, currentTypingText);
+function setTypingPlaceholder(text, includeInTyping = false) {
+  if (!currentTypingNode) return;
+  renderMarkdown(currentTypingNode, text);
+  els.chat.scrollTop = els.chat.scrollHeight;
+  if (includeInTyping) {
+    currentTypingText = text;
+    recordDisplayedMessageContent(currentTypingMessageId, currentTypingText);
+  }
 }
 
 function endTyping() {
   typingQueue.push(null); // Signal end
+  processTypingQueue();
 }
 
 function stopTyping() {
   typingAnimationActive = false;
   typingQueue = [];
   currentTypingMessageId = null;
+  typingChunkInProgress = false;
 }
 
 // Global function for incomplete message refresh
 window.refreshIncompleteMessage = async function(messageId) {
   try {
+    const prevDisplayed = new Map(displayedMessageContents);
     const refreshData = await nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 2, timeoutMs: 5000 });
     if (refreshData && refreshData.messages) {
       state.messages = mergeMessages(state.messages, refreshData.messages);
       renderHistory();
+      if (messageId === 'auto') {
+        animateAutoRecoverTyping(prevDisplayed);
+      }
       if (messageId !== 'auto') {
         toast('Message refreshed');
       }
@@ -1316,6 +1357,27 @@ function checkIncompleteMessages() {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
     logActivity('Auto-refresh stopped - all messages complete');
+  }
+}
+
+function animateAutoRecoverTyping(previousContents) {
+  if (!previousContents) return;
+  if (autoRefreshTimer === null) return;
+  const target = [...state.messages].reverse().find(
+    (msg) => msg.role === 'assistant' && msg.is_complete === false
+  );
+  if (!target || !target.id) return;
+  const prevText = previousContents.get(target.id) || '';
+  const newText = target.content || '';
+  if (newText.length <= prevText.length) return;
+  const bubble = els.chat.querySelector(`[data-message-id="${target.id}"] .markdown-body`);
+  if (!bubble) return;
+
+  stopTyping();
+  startTypingAnimation(bubble, target.id, prevText);
+  const diff = newText.substring(prevText.length);
+  if (diff) {
+    queueTypingChunk(diff);
   }
 }
 
@@ -1521,7 +1583,6 @@ async function handleSend(event){
 
   // Start typing animation for this assistant message
   startTypingAnimation(assistantBody, assistantMsgId);
-  renderMarkdown(assistantBody, '_Preparing model…_');
   setTypingPlaceholder('_Preparing model…_');
   assistantMessage.content = '_Preparing model…_';
   const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
@@ -1686,7 +1747,6 @@ async function handleSend(event){
       applyModelStatusEvent(statusPayload);
       if (statusPayload && statusPayload.phase === 'loading') {
         const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
-        renderMarkdown(assistantBody, `_${desc}_`);
         setTypingPlaceholder(`_${desc}_`);
         assistantMessage.content = `_${desc}_`;
         assistantMessage.streaming = true;
