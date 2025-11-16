@@ -1600,6 +1600,9 @@ async function handleSend(event){
           if (state.modelStatus.phase !== 'streaming'){
             setModelStatus('streaming', { model: modelLabel });
           }
+          if (currentTypingNode){
+            setTypingPlaceholder('', true);
+          }
         }
         // Handle sequenced deltas (may be batched)
         let chunkToQueue = '';
