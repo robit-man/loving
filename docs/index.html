@@ -815,6 +815,7 @@ const state = {
     healthInterval: null,
   },
   autoLoginTried: false,
+  autoLoginInProgress: false,
   savedCreds: null,
   modelStatus: { phase: 'idle', description: 'Model idle', meta: {} },
 };
@@ -907,6 +908,12 @@ function loadSavedCreds(){
     console.warn('Failed to load auto-login creds', err);
   }
   return null;
+}
+
+function isInvalidCredentialsError(err){
+  if (!err) return false;
+  const msg = (err && err.message ? String(err.message) : String(err)).toLowerCase();
+  return msg.includes('invalid credentials') || msg.includes('invalid username') || msg.includes('invalid password');
 }
 
 function saveCredentials(username, password){
@@ -1157,12 +1164,28 @@ function applyModelStatusEvent(data){
 setModelStatus(state.modelStatus.phase, { description: state.modelStatus.description });
 
 async function attemptAutoLogin(){
-  if (state.autoLoginTried) return;
+  if (state.autoLoginTried || state.autoLoginInProgress) return;
   if (!state.savedCreds) return;
   if (state.session) return;
-  state.autoLoginTried = true;
+  state.autoLoginInProgress = true;
   logActivity('Attempting auto login…');
-  await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
+  try {
+    const result = await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
+    if (result && result.success){
+      state.autoLoginTried = true;
+      return;
+    }
+    const invalidCreds = isInvalidCredentialsError(result && result.error);
+    if (invalidCreds){
+      localStorage.removeItem(AUTO_LOGIN_KEY);
+      state.savedCreds = null;
+      state.autoLoginTried = true;
+    } else {
+      state.autoLoginTried = false;
+    }
+  } finally {
+    state.autoLoginInProgress = false;
+  }
 }
 
 function renderBubble(role, content, messageId){
@@ -1515,16 +1538,11 @@ async function performLogin(username, password, { auto }) {
       els.loginPass.value = '';
       els.registerPass.value = '';
     }
-    if (auto) state.autoLoginTried = true;
+    return { success: true };
   } catch (err){
     toast(err.message || 'Login failed', false);
     logActivity(`${auto ? 'Auto login' : 'Login'} failed: ${err.message || err}`, false);
-    if (auto){
-      state.autoLoginTried = true;
-      // Clear failed auto-login credentials
-      localStorage.removeItem(AUTO_LOGIN_KEY);
-      state.savedCreds = null;
-    }
+    return { success: false, error: err };
   }
 }
 
