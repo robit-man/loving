@@ -57,6 +57,9 @@
     body::before { top: -10%; left: -5%; opacity: 0.9; }
     body::after { bottom: -20%; right: -10%; opacity: 0.55; }
     a{color:cornflowerblue;text-decoration:none;}
+    input, textarea{
+      outline:none!important;
+    }
     .ambient-background {
       position: fixed;
       inset: 0;
@@ -1400,6 +1403,13 @@ function setTypingPlaceholder(text, includeInTyping = false) {
   }
 }
 
+function clearTypingPlaceholder() {
+  if (!currentTypingNode) return;
+  currentTypingText = '';
+  renderMarkdown(currentTypingNode, '');
+  recordDisplayedMessageContent(currentTypingMessageId, '');
+}
+
 function syncTypingPlaceholderToModelStatus(statusPayload) {
   if (!currentTypingNode) return;
   const payload = statusPayload || state.modelStatus;
@@ -1709,9 +1719,8 @@ async function handleSend(event){
             setModelStatus('streaming', { model: modelLabel });
           }
           if (currentTypingNode){
-            setTypingPlaceholder('', true);
-            currentTypingText = '';
-            renderMarkdown(currentTypingNode, '');
+            clearTypingPlaceholder();
+            assistantMessage.content = '';
           }
         }
         // Handle sequenced deltas (may be batched)
