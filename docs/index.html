@@ -1299,6 +1299,17 @@ function setTypingPlaceholder(text, includeInTyping = false) {
   }
 }
 
+function syncTypingPlaceholderToModelStatus(statusPayload) {
+  if (!currentTypingNode) return;
+  const payload = statusPayload || state.modelStatus;
+  if (!payload) return;
+  const phase = payload.phase || 'idle';
+  if (phase === 'streaming' || phase === 'error') return;
+  const detail = payload.detail || payload.description || '';
+  if (!detail) return;
+  setTypingPlaceholder(`_${detail}_`);
+}
+
 function endTyping() {
   typingQueue.push(null); // Signal end
   processTypingQueue();
@@ -1750,16 +1761,17 @@ async function handleSend(event){
         assistantMessage.streaming = false;
         assistantMessage.is_complete = false;
       },
-      onStatus(statusPayload){
-        applyModelStatusEvent(statusPayload);
-        if (statusPayload && statusPayload.phase === 'loading') {
-          const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
-          setTypingPlaceholder(`_${desc}_`);
-          assistantMessage.content = `_${desc}_`;
-          assistantMessage.streaming = true;
-          assistantMessage.is_complete = false;
-        }
+    onStatus(statusPayload){
+      applyModelStatusEvent(statusPayload);
+      syncTypingPlaceholderToModelStatus(statusPayload);
+      if (statusPayload && statusPayload.phase === 'loading') {
+        const desc = statusPayload.description || statusPayload.detail || `Loading ${(statusPayload.model || modelLabel)}…`;
+        setTypingPlaceholder(`_${desc}_`);
+        assistantMessage.content = `_${desc}_`;
+        assistantMessage.streaming = true;
+        assistantMessage.is_complete = false;
       }
+    }
     };
 
     streamViaNkn({

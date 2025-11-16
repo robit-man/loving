@@ -908,6 +908,7 @@ class NKNRelayServer:
         self._known_clients: set[str] = set()
         self._active_assistant_uuids: set[str] = set()
         self._cached_assistant_replies: Dict[str, Tuple[str, int, float]] = {}
+        self._model_warmed = False
         bridge.register_listener(self._handle_message)
 
     def _send(self, to_addr: str, payload: Dict[str, Any]) -> None:
@@ -992,6 +993,10 @@ class NKNRelayServer:
             data["id"] = req_id
         data.update(extra)
         self._send(src, data)
+
+    def mark_model_warmed(self) -> None:
+        """Mark the target Ollama model as warmed so future requests can skip the loading phase."""
+        self._model_warmed = True
 
     def _handle_message(self, src: str, payload: Dict[str, Any]) -> None:
         event = payload.get("event")
@@ -1343,12 +1348,16 @@ class NKNRelayServer:
         assembled.extend(history)
         assembled.append({"role": "user", "content": message_text})
         self._send(src, {"event": "chat.ack", "id": req_id, "model": OLLAMA_MODEL_NAME})
+        status_phase = "loading" if not self._model_warmed else "idle"
+        status_detail = "Warming model…" if not self._model_warmed else "Model warmed"
         self._send_model_status(
             src,
             req_id,
-            "loading",
+            status_phase,
             context_messages=len(history),
+            detail=status_detail,
         )
+        self._model_warmed = True
 
         # Streaming with batched deltas and progressive persistence
         full_reply_parts: List[str] = []
@@ -1525,7 +1534,9 @@ def main() -> None:
     atexit.register(nkn_bridge.stop)
     if keepalive_stop:
         atexit.register(keepalive_stop.set)
-    NKNRelayServer(nkn_bridge, ollama_client, system_prompts, db, sessions)
+    relay_server = NKNRelayServer(nkn_bridge, ollama_client, system_prompts, db, sessions)
+    if keepalive_stop:
+        relay_server.mark_model_warmed()
 
     addr = nkn_bridge.wait_ready(timeout=60)
     if addr:
