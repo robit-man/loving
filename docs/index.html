@@ -14,8 +14,8 @@
       --border-subtle: rgba(240, 170, 160, 0.35);
       --text-main: #3d2b26;
       --text-muted: rgba(78, 55, 50, 0.7);
-      --accent: #f472b6;
-      --accent-soft: rgba(244, 114, 182, 0.15);
+      --accent: #ec4899;
+      --accent-soft: rgba(236, 72, 147, 0.15);
       --radius-card: 18px;
       --shadow-card: 0 25px 60px rgba(7, 2, 12, 0.35);
       --glow-rose: rgba(255, 182, 213, 0.35);
@@ -153,16 +153,18 @@
       border-radius: var(--radius-card) var(--radius-card) 0 0;
       display: flex; justify-content: space-between; align-items: center; gap: 16px;
     }
-    .app-header-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #be185d; }
+    .app-header-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: pink; }
     .app-header-sub { font-size: 13px; color: var(--text-muted); }
     .status-pill {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 14px; border-radius: 999px; border: none;
-      background: rgba(252, 231, 243, 0.9); font-size: 12px;
-      box-shadow: 0 8px 16px rgba(255, 173, 204, 0.35);
+      font-size: 12px;
+      box-shadow: none;
+      transition: background 0.2s ease, color 0.2s ease;
     }
-    .status-pill.ok { background: rgba(187,247,208,0.9); color: #065f46; }
-    .status-pill.err { background: rgba(254,226,226,0.95); color: #991b1b; }
+    .status-pill.status-green { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
+    .status-pill.status-yellow { background: rgba(234, 179, 8, 0.12); color: #b45309; }
+    .status-pill.status-red { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
     .model-status-pill {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 14px; border-radius: 999px;
@@ -213,7 +215,7 @@
     .conn-bar button {
       border-radius: 999px; border: none; padding: 8px 16px; font-size: 13px;
       background: var(--accent); color: white; cursor: pointer;
-      box-shadow: 0 10px 18px rgba(236,72,153,0.25);
+      box-shadow: 0 10px 18px rgba(185,28,133,0.25);
     }
     .conn-bar button:disabled { opacity: .5; cursor: not-allowed; }
     .auth-section { display: flex; flex-direction: column; gap: 12px; }
@@ -231,8 +233,8 @@
     }
     .auth-card button {
       align-self: flex-start; padding: 8px 16px; border-radius: 999px;
-      border: none; background: linear-gradient(120deg, #f472b6, #fb7185);
-      color: #fff; cursor: pointer; box-shadow: 0 12px 24px rgba(244,114,182,0.3);
+      border: none; background: linear-gradient(120deg, #ec4899, #b91c85);
+      color: #fff; cursor: pointer; box-shadow: 0 12px 24px rgba(185,28,133,0.35);
     }
     .session-bar {
       display: flex; align-items: center; gap: 12px; justify-content: space-between;
@@ -330,10 +332,10 @@
     .chat-textarea:disabled { background: #f5ebe1; }
     .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .btn {
-      background: linear-gradient(120deg, #f472b6, #fb7185);
+      background: linear-gradient(120deg, #ec4899, #b91c85);
       border: none; border-radius: 999px;
       padding: 12px 28px; font-size: 14px; color: white; font-weight: 600;
-      box-shadow: 0 18px 30px rgba(244,114,182,0.35); cursor: pointer;
+      box-shadow: 0 18px 30px rgba(185,28,133,0.35); cursor: pointer;
     }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
     .chat-hint { font-size: 12px; color: var(--text-muted); }
@@ -358,6 +360,24 @@
       border: none;
       position: relative;
       overflow: hidden;
+    }
+    .modal-spinner {
+      position: absolute !important;
+      top: 20px;
+      right: 20px;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 4px solid rgba(255, 255, 255, 0.45);
+      border-top-color: rgba(190, 24, 93, 0.95);
+      box-shadow: 0 0 18px rgba(244, 114, 182, 0.8);
+      animation: modal-spinner-spin 2.4s linear infinite;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .login-modal.state-connect .modal-spinner {
+      opacity: 1;
     }
     .modal-content::before,
     .modal-content::after {
@@ -393,9 +413,13 @@
     .modal-sparkles span:nth-child(2) { top: 8%; right: 15%; animation-delay: 1s; }
     .modal-sparkles span:nth-child(3) { bottom: 18%; left: 28%; animation-delay: 2s; }
     .modal-sparkles span:nth-child(4) { bottom: 12%; right: 20%; animation-delay: 3s; }
+    @keyframes modal-spinner-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     .modal-title {
       font-size: 24px; font-weight: 700; margin: 0 0 8px 0;
-      color: #be185d;
+      color: #ec4899;
     }
     .modal-subtitle {
       font-size: 14px; color: var(--text-muted); margin: 0 0 24px 0;
@@ -449,16 +473,16 @@
       background: var(--accent-soft); border-color: var(--accent);
     }
     .new-chat-btn {
-      width: 100%; background: linear-gradient(120deg, #f472b6, #fb7185);
+      width: 100%; background: linear-gradient(120deg, #ec4899, #b91c85);
       border: none; border-radius: 999px; padding: 10px 16px;
       font-size: 13px; font-weight: 600; color: white;
-      cursor: pointer; box-shadow: 0 6px 16px rgba(244,114,182,0.3);
+      cursor: pointer; box-shadow: 0 6px 16px rgba(185,28,133,0.3);
       display: flex; align-items: center; justify-content: center; gap: 8px;
       transition: transform 0.2s, box-shadow 0.2s;
     }
     .new-chat-btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(244,114,182,0.4);
+      box-shadow: 0 8px 20px rgba(185,28,133,0.4);
     }
     .sessions-list {
       display: flex; flex-direction: column; gap: 6px;
@@ -478,7 +502,7 @@
     }
     .session-item.active {
       background: rgba(255,223,235,0.9); border: none;
-      box-shadow: 0 12px 20px rgba(236,72,153,0.25);
+      box-shadow: 0 12px 20px rgba(185,28,133,0.25);
     }
     .session-item-content {
       flex: 1; min-width: 0;
@@ -558,6 +582,7 @@
         <span></span>
         <span></span>
       </div>
+      <div class="modal-spinner" role="status" aria-live="polite" aria-label="Waiting for NKN relay connection"></div>
       <h1 class="modal-title">NOVA-Q <b id="kindness">LOVES</b></h1>
       <p class="modal-subtitle" id="modal-subtitle">Connect to NKN relay to begin</p>
 
@@ -605,7 +630,7 @@
         <div class="app-header-title">NOVA-Q</div>
       </div>
       <div class="app-header-right">
-        <span class="status-pill ok" id="nkn-status-chat">Connected</span>
+          <span class="status-pill" id="nkn-status-chat">Connected</span>
       </div>
     </header>
     <main class="app-main">
@@ -628,8 +653,13 @@
           <button class="sidebar-inline-toggle" id="sidebar-toggle-inline" title="Show chats">☰</button>
           <span id="session-status">Not signed in.</span>
           <span class="model-status-pill" id="model-status-pill" data-phase="idle">Model idle</span>
-          <span id="client-count">Peers: 0</span>
-          <button type="button" id="logout-btn">Sign out</button>
+          <button type="button" id="logout-btn" aria-label="Log out">
+            <svg width="18" height="18" viewBox="0 0 24 24" role="img" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
         </div>
         <div id="chat-area" class="chat-area">
         <div class="chat-messages" id="chat-messages"></div>
@@ -820,7 +850,6 @@ const els = {
   showLoginBtn: document.getElementById('show-login'),
   logoutBtn: document.getElementById('logout-btn'),
   sessionStatus: document.getElementById('session-status'),
-  clientCount: document.getElementById('client-count'),
   activity: document.getElementById('activity-log'),
   chat: document.getElementById('chat-messages'),
   input: document.getElementById('chat-input'),
@@ -1009,7 +1038,7 @@ async function checkRelay(){
   state.relayInfo = info;
   const summary = info && info.model ? `Relay ready · model ${info.model}` : 'Relay info received';
   logActivity(summary, true);
-  updateClientCount();
+  setNknStatus('green', 'Connected', getPeerCount(info));
   if (info && info.model && state.modelStatus.phase === 'idle'){
     setModelStatus('idle', { description: `${info.model} ready`, model: info.model });
   }
@@ -1047,13 +1076,6 @@ function updateSessionUI(){
   }
 }
 
-function updateClientCount(){
-  if (!els.clientCount) return;
-  const info = state.relayInfo || {};
-  const count = typeof info.peer_count === 'number' ? info.peer_count : (state.session ? 1 : 0);
-  els.clientCount.textContent = `Peers: ${count}`;
-}
-
 function describeModelPhase(phase, meta = {}){
   const modelName = meta.model || (state.relayInfo && state.relayInfo.model) || 'model';
   switch (phase){
@@ -1069,12 +1091,33 @@ function describeModelPhase(phase, meta = {}){
   }
 }
 
+const statusColorClasses = ['status-green', 'status-yellow', 'status-red'];
+
+function applyIndicatorColor(el, colorClass){
+  if (!el) return;
+  statusColorClasses.forEach((cls) => el.classList.toggle(cls, cls === colorClass));
+}
+
+function phaseToColor(phase){
+  switch (phase){
+    case 'loading':
+      return 'status-yellow';
+    case 'error':
+      return 'status-red';
+    case 'streaming':
+    case 'idle':
+    default:
+      return 'status-green';
+  }
+}
+
 function setModelStatus(phase, meta = {}){
   const description = meta.description || meta.message || describeModelPhase(phase, meta);
   state.modelStatus = { phase, description, meta };
   if (els.modelStatusPill){
     els.modelStatusPill.textContent = description;
     els.modelStatusPill.dataset.phase = phase;
+    applyIndicatorColor(els.modelStatusPill, phaseToColor(phase));
     if (meta.detail || meta.error){
       els.modelStatusPill.title = meta.detail || meta.error;
     } else if (meta.model || (state.relayInfo && state.relayInfo.model)){
@@ -1083,6 +1126,22 @@ function setModelStatus(phase, meta = {}){
       els.modelStatusPill.removeAttribute('title');
     }
   }
+}
+
+function setNknStatus(level, label, peers){
+  if (!els.nknStatusChat) return;
+  const colorClass = level === 'yellow' ? 'status-yellow' : level === 'red' ? 'status-red' : 'status-green';
+  applyIndicatorColor(els.nknStatusChat, colorClass);
+  const suffix = peers !== undefined ? ` · Peers: ${peers}` : '';
+  els.nknStatusChat.textContent = `${label || els.nknStatusChat.textContent}${suffix}`;
+}
+
+function getPeerCount(info){
+  const payload = info || state.relayInfo || {};
+  if (typeof payload.peer_count === 'number'){
+    return payload.peer_count;
+  }
+  return state.session ? 1 : 0;
 }
 
 function applyModelStatusEvent(data){
@@ -1799,6 +1858,7 @@ async function ensureNknClient(){
   if (!window.nkn || !window.nkn.MultiClient){
     throw new Error('nkn-sdk not loaded');
   }
+  setNknStatus('yellow', 'Connecting to NKN…');
   toast('Connecting to NKN…', true);
   const promise = new Promise((resolve, reject) => {
     try {
@@ -1816,6 +1876,7 @@ async function ensureNknClient(){
         state.nkn.ready = true;
         state.nkn.addr = String(client.addr || '');
         toast(state.nkn.addr ? `NKN connected · ${state.nkn.addr.slice(0, 12)}…` : 'NKN connected');
+        setNknStatus('green', 'Connected');
 
         // Check relay and trigger auto-login if credentials are saved
         checkRelay()
@@ -1841,6 +1902,7 @@ async function ensureNknClient(){
         state.nkn.client = null;
         state.nkn.addr = '';
         toast('NKN disconnected', false);
+        setNknStatus('red', 'Disconnected');
         stopNknHealthMonitor();
         scheduleNknReconnect('close');
       });
@@ -1849,6 +1911,7 @@ async function ensureNknClient(){
         state.nkn.ready = false;
         state.nkn.addr = '';
         toast('NKN error', false);
+        setNknStatus('red', 'Error');
         stopNknHealthMonitor();
         scheduleNknReconnect('error');
         if (!resolved){ resolved = true; reject(err); }
