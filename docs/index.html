@@ -322,18 +322,42 @@
       100% { transform: scaleX(0); }
     }
     .chat-input-wrap {
-      display: flex; flex-direction: column; gap: 10px;
+      display: flex; flex-direction: column; gap: 8px;
       flex-shrink: 0;
     }
-    .chat-textarea {
-      width: 100%; min-height: 120px; border-radius: 18px;
-      border: none;
-      padding: 16px; font-size: 16px; background: var(--bg-input);
-      resize: vertical; font-family: inherit;
-      box-shadow: inset 0 0 0 1px rgba(236, 180, 170, 0.35);
+    .chat-input-field {
+      position: relative;
+      width: 100%;
     }
-    .chat-textarea:disabled { background: #f5ebe1; }
-    .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .chat-input-field-control {
+      width: 100%; min-height: 55px; border-radius: 26px;
+      border: none; padding: 14px 140px 14px 16px;
+      font-size: 16px; background: var(--bg-input);
+      font-family: inherit; box-shadow: inset 0 0 0 1px rgba(236, 180, 170, 0.35);
+      transition: box-shadow 0.2s ease;
+      resize: none;
+    }
+    .chat-input-field-control:focus {
+      outline: none;
+      box-shadow: inset 0 0 0 1px rgba(236, 180, 170, 0.35), 0 0 0 3px rgba(236,72,147,0.15);
+    }
+    .chat-input-field-control:disabled {
+      background: #f5ebe1;
+      cursor: not-allowed;
+    }
+    .chat-input-field-control.multiline {
+      padding-bottom: 90px;
+      resize: vertical;
+    }
+    .chat-input-submit {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      border-radius: 12px;
+      padding: 6px 16px;
+      font-size: 13px;
+      box-shadow: 0 10px 24px rgba(185,28,133,0.35);
+    }
     .btn {
       background: linear-gradient(120deg, #ec4899, #b91c85);
       border: none; border-radius: 999px;
@@ -665,15 +689,15 @@
           </button>
         </div>
         <div id="chat-area" class="chat-area">
-        <div class="chat-messages" id="chat-messages"></div>
-        <form id="chat-form" class="chat-input-wrap">
-          <textarea id="chat-input" class="chat-textarea" placeholder="Offer a question or reflection for NOVA-Q…" required></textarea>
-          <div class="chat-actions">
-            <button class="btn" type="submit" id="send-btn">Send</button>
+          <div class="chat-messages" id="chat-messages"></div>
+          <form id="chat-form" class="chat-input-wrap">
+            <div class="chat-input-field">
+              <input id="chat-input" type="text" class="chat-input-field-control" placeholder="Offer a question or reflection for NOVA-Q…" required autocomplete="off">
+              <button class="btn chat-input-submit" type="submit" id="send-btn" aria-label="Send message">↗</button>
+            </div>
             <div class="chat-hint">Streaming replies are stored per account.</div>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
       </section>
     </main>
   </div>
@@ -942,6 +966,109 @@ function prefillSavedCreds(){
   }
   if (els.loginUser) els.loginUser.value = '';
   if (els.loginPass) els.loginPass.value = '';
+}
+
+function bindChatInputEvents(){
+  if (!els.input) return;
+  els.input.removeEventListener('input', handleChatInputInputEvent);
+  els.input.removeEventListener('keydown', handleChatInputKeydownEvent);
+  els.input.addEventListener('input', handleChatInputInputEvent);
+  els.input.addEventListener('keydown', handleChatInputKeydownEvent);
+  checkExpandInputOverflow();
+}
+
+function handleChatInputInputEvent(){
+  const input = els.input;
+  if (!input) return;
+  if (input.tagName.toLowerCase() === 'input'){
+    checkExpandInputOverflow();
+  } else {
+    if (shouldDowngradeTextarea(input)){
+      downgradeChatInputToInput();
+      return;
+    }
+    adjustTextareaHeight(input);
+  }
+}
+
+function handleChatInputKeydownEvent(event){
+  if (!els.input) return;
+  if (els.input.tagName.toLowerCase() === 'input' && (event.ctrlKey || event.metaKey) && event.key === 'Enter'){
+    event.preventDefault();
+    upgradeChatInputToTextarea({ addNewline: true });
+  }
+}
+
+function checkExpandInputOverflow(){
+  const input = els.input;
+  if (!input || input.tagName.toLowerCase() !== 'input') return;
+  if (!input.value) return;
+  if (input.scrollWidth > input.clientWidth + 20){
+    upgradeChatInputToTextarea();
+  }
+}
+
+function upgradeChatInputToTextarea({ addNewline = false } = {}){
+  const input = els.input;
+  if (!input || input.tagName.toLowerCase() === 'textarea') return;
+  const wrapper = document.querySelector('.chat-input-field');
+  if (!wrapper) return;
+  const value = input.value || '';
+  const textarea = document.createElement('textarea');
+  textarea.id = 'chat-input';
+  textarea.className = `${input.className} multiline`;
+  textarea.placeholder = input.placeholder || '';
+  textarea.autocomplete = input.autocomplete;
+  textarea.spellcheck = input.spellcheck;
+  textarea.required = input.required;
+  textarea.rows = 3;
+  textarea.value = value + (addNewline ? '\n' : '');
+  wrapper.replaceChild(textarea, input);
+  els.input = textarea;
+  bindChatInputEvents();
+  adjustTextareaHeight(textarea);
+  textarea.focus();
+  textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+}
+
+function downgradeChatInputToInput(){
+  const textarea = els.input;
+  if (!textarea || textarea.tagName.toLowerCase() === 'input') return;
+  const wrapper = document.querySelector('.chat-input-field');
+  if (!wrapper) return;
+  const value = textarea.value || '';
+  const input = document.createElement('input');
+  input.id = 'chat-input';
+  input.type = 'text';
+  input.className = textarea.className.replace(/\bmultiline\b/g, '').trim();
+  input.placeholder = textarea.placeholder || '';
+  input.autocomplete = textarea.autocomplete;
+  input.spellcheck = textarea.spellcheck;
+  input.required = textarea.required;
+  input.value = value;
+  wrapper.replaceChild(input, textarea);
+  els.input = input;
+  bindChatInputEvents();
+  input.focus();
+  input.selectionStart = input.selectionEnd = input.value.length;
+}
+
+function shouldDowngradeTextarea(textarea){
+  if (!textarea || textarea.tagName.toLowerCase() !== 'textarea') return false;
+  const value = textarea.value || '';
+  if (value.includes('\n')) return false;
+  const style = window.getComputedStyle(textarea);
+  const lineHeight = parseFloat(style.lineHeight) || 20;
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const paddingBottom = parseFloat(style.paddingBottom) || 0;
+  const innerHeight = textarea.scrollHeight - paddingTop - paddingBottom;
+  const fitsWithoutWrapping = textarea.scrollWidth <= textarea.clientWidth + 4;
+  return innerHeight <= lineHeight * 1.5 && fitsWithoutWrapping;
+}
+
+function adjustTextareaHeight(textarea){
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
 function logActivity(text, ok=true){
@@ -1696,7 +1823,7 @@ async function handleSend(event){
     const assistantMessage = {
       id: assistantMsgId,
       role: 'assistant',
-      content: '_Preparing model…_',
+      content: '',
       streaming: true,
       is_complete: false,
     };
@@ -1706,7 +1833,6 @@ async function handleSend(event){
     // Start typing animation for this assistant message
     startTypingAnimation(assistantBody, assistantMsgId);
     setTypingPlaceholder('_Preparing model…_');
-    assistantMessage.content = '_Preparing model…_';
     const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
     setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
     let streamingNoted = false;
@@ -2207,6 +2333,7 @@ function init(){
   els.pubkeyInput.value = state.relayPubkey;
 
   prefillSavedCreds();
+  bindChatInputEvents();
   if (state.savedCreds){
     logActivity('Saved credentials loaded');
   }
