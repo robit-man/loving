@@ -769,6 +769,7 @@ const state = {
   sessions: [],
   messages: [],
   busy: false,
+  pendingSend: false,
   nkn: {
     seed: null,
     client: null,
@@ -1550,167 +1551,130 @@ function mergeMessages(localMessages, dbMessages){
 
 async function handleSend(event){
   event.preventDefault();
-  if (!state.session){
-    toast('Sign in first', false);
-    return;
-  }
-  if (!requireRelay()) return;
-  await ensureRelayReady();
-  if (state.busy) return;
-  const text = (els.input.value || '').trim();
-  if (!text) return;
-  els.input.value = '';
+  if (state.pendingSend) return;
+  state.pendingSend = true;
+  try {
+    if (!state.session){
+      toast('Sign in first', false);
+      return;
+    }
+    if (!requireRelay()) return;
+    await ensureRelayReady();
+    if (state.busy) return;
+    const text = (els.input.value || '').trim();
+    if (!text) return;
+    els.input.value = '';
 
-  // Add user message with unique ID to prevent duplicates
-  const userMsgId = generateMessageId();
-  state.messages.push({ id: userMsgId, role: 'user', content: text });
-  renderBubble('user', text, userMsgId);
+    // Add user message with unique ID to prevent duplicates
+    const userMsgId = generateMessageId();
+    state.messages.push({ id: userMsgId, role: 'user', content: text });
+    renderBubble('user', text, userMsgId);
 
-  let accumulated = '';
-  let expectedSeq = 0;
-  const deltaBuffer = new Map();  // seq -> delta (for out-of-order deltas)
-  const assistantMsgId = generateMessageId();
-  const assistantBody = renderBubble('assistant', '', assistantMsgId);
-  const assistantMessage = {
-    id: assistantMsgId,
-    role: 'assistant',
-    content: '_Preparing model…_',
-    streaming: true,
-    is_complete: false,
-  };
-  state.messages.push(assistantMessage);
-  setBusy(true);
+    let accumulated = '';
+    let expectedSeq = 0;
+    const deltaBuffer = new Map();  // seq -> delta (for out-of-order deltas)
+    const assistantMsgId = generateMessageId();
+    const assistantBody = renderBubble('assistant', '', assistantMsgId);
+    const assistantMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '_Preparing model…_',
+      streaming: true,
+      is_complete: false,
+    };
+    state.messages.push(assistantMessage);
+    setBusy(true);
 
-  // Start typing animation for this assistant message
-  startTypingAnimation(assistantBody, assistantMsgId);
-  setTypingPlaceholder('_Preparing model…_');
-  assistantMessage.content = '_Preparing model…_';
-  const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
-  setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
-  let streamingNoted = false;
+    // Start typing animation for this assistant message
+    startTypingAnimation(assistantBody, assistantMsgId);
+    setTypingPlaceholder('_Preparing model…_');
+    assistantMessage.content = '_Preparing model…_';
+    const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
+    setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
+    let streamingNoted = false;
 
-  const handlers = {
-    onDelta(delta, seq, batchSize){
-      if (!streamingNoted){
-        streamingNoted = true;
-        if (state.modelStatus.phase !== 'streaming'){
-          setModelStatus('streaming', { model: modelLabel });
+    const handlers = {
+      onDelta(delta, seq, batchSize){
+        if (!streamingNoted){
+          streamingNoted = true;
+          if (state.modelStatus.phase !== 'streaming'){
+            setModelStatus('streaming', { model: modelLabel });
+          }
         }
-      }
-      // Handle sequenced deltas (may be batched)
-      let chunkToQueue = '';
+        // Handle sequenced deltas (may be batched)
+        let chunkToQueue = '';
 
-      if (seq !== undefined) {
-        const deltasToAdd = batchSize || 1;
-        if (seq === expectedSeq) {
-          // In-order delta
+        if (seq !== undefined) {
+          const deltasToAdd = batchSize || 1;
+          if (seq === expectedSeq) {
+            // In-order delta
+            accumulated += delta || '';
+            chunkToQueue = delta || '';
+            expectedSeq += deltasToAdd;
+
+            // Process any buffered deltas that are now in order
+            while (deltaBuffer.has(expectedSeq)) {
+              const bufferedDelta = deltaBuffer.get(expectedSeq);
+              accumulated += bufferedDelta;
+              chunkToQueue += bufferedDelta;
+              deltaBuffer.delete(expectedSeq);
+              expectedSeq++;
+            }
+          } else if (seq > expectedSeq) {
+            // Out-of-order delta - buffer it
+            deltaBuffer.set(seq, delta);
+            logActivity(`Buffered out-of-order delta ${seq} (expected ${expectedSeq})`);
+            return; // Don't queue out-of-order deltas yet
+          } else {
+            // Duplicate delta - ignore
+            return;
+          }
+        } else {
+          // Legacy: no sequence number
           accumulated += delta || '';
           chunkToQueue = delta || '';
-          expectedSeq += deltasToAdd;
+        }
 
-          // Process any buffered deltas that are now in order
-          while (deltaBuffer.has(expectedSeq)) {
-            const bufferedDelta = deltaBuffer.get(expectedSeq);
-            accumulated += bufferedDelta;
-            chunkToQueue += bufferedDelta;
-            deltaBuffer.delete(expectedSeq);
-            expectedSeq++;
+        // Queue the chunk for typing animation instead of rendering immediately
+        if (chunkToQueue) {
+          queueTypingChunk(chunkToQueue);
+        }
+        assistantMessage.content = accumulated || currentTypingText || assistantMessage.content || '';
+        assistantMessage.streaming = true;
+        assistantMessage.is_complete = false;
+      },
+      onDone(totalSeq, finalContent){
+        // Use final content if provided (most reliable)
+        if (finalContent && finalContent.length > accumulated.length) {
+          accumulated = finalContent;
+          // Queue the remaining content that wasn't streamed
+          const remaining = finalContent.substring(currentTypingText.length);
+          if (remaining) {
+            queueTypingChunk(remaining);
           }
-        } else if (seq > expectedSeq) {
-          // Out-of-order delta - buffer it
-          deltaBuffer.set(seq, delta);
-          logActivity(`Buffered out-of-order delta ${seq} (expected ${expectedSeq})`);
-          return; // Don't queue out-of-order deltas yet
-        } else {
-          // Duplicate delta - ignore
-          return;
+          logActivity(`Final sync: updated to ${finalContent.length} chars`);
         }
-      } else {
-        // Legacy: no sequence number
-        accumulated += delta || '';
-        chunkToQueue = delta || '';
-      }
 
-      // Queue the chunk for typing animation instead of rendering immediately
-      if (chunkToQueue) {
-        queueTypingChunk(chunkToQueue);
-      }
-      assistantMessage.content = accumulated || currentTypingText || assistantMessage.content || '';
-      assistantMessage.streaming = true;
-      assistantMessage.is_complete = false;
-    },
-    onDone(totalSeq, finalContent){
-      // Use final content if provided (most reliable)
-      if (finalContent && finalContent.length > accumulated.length) {
-        accumulated = finalContent;
-        // Queue the remaining content that wasn't streamed
-        const remaining = finalContent.substring(currentTypingText.length);
-        if (remaining) {
-          queueTypingChunk(remaining);
+        // Signal end of typing animation
+        endTyping();
+
+        // Check for missing deltas
+        if (totalSeq !== undefined && expectedSeq < totalSeq) {
+          logActivity(`Warning: Missing deltas. Expected ${totalSeq}, received ${expectedSeq}`, false);
         }
-        logActivity(`Final sync: updated to ${finalContent.length} chars`);
-      }
 
-      // Signal end of typing animation
-      endTyping();
-
-      // Check for missing deltas
-      if (totalSeq !== undefined && expectedSeq < totalSeq) {
-        logActivity(`Warning: Missing deltas. Expected ${totalSeq}, received ${expectedSeq}`, false);
-      }
-
-      if (accumulated){
-        assistantMessage.content = accumulated;
-      }
-      assistantMessage.streaming = false;
-      assistantMessage.is_complete = true;
-      setBusy(false);
-      if (state.modelStatus.phase !== 'idle'){
-        setModelStatus('idle', { model: modelLabel });
-      }
-
-      // Do final DB refresh to ensure we're in sync (merge, don't replace)
-      nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 1, timeoutMs: 5000 })
-        .then(refreshData => {
-          if (refreshData) {
-            if (refreshData.messages) {
-              state.messages = mergeMessages(state.messages, refreshData.messages);
-            }
-            if (refreshData.sessions) {
-              state.sessions = refreshData.sessions;
-              renderSessions();
-            }
-            if (refreshData.current_session_id) state.currentSessionId = refreshData.current_session_id;
-            renderHistory();
-            logActivity(`Final DB refresh: ${state.messages.length} messages`);
-          }
-        })
-        .catch(err => console.warn('Final refresh failed:', err));
-    },
-    onError(err, isPartial){
-      // Queue any remaining untyped content before stopping
-      if (accumulated && accumulated.length > currentTypingText.length) {
-        const remaining = accumulated.substring(currentTypingText.length);
-        queueTypingChunk(remaining);
-        queueTypingChunk('\n\n*[Connection interrupted. Refreshing...]*');
-        endTyping(); // Let typing finish gracefully
-      } else {
-        // Stop typing animation immediately
-        stopTyping();
-        // Always preserve partial message if we have accumulated content
-        if (accumulated) {
-          renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
-          logActivity(`Partial response received (${accumulated.length} chars), refreshing from DB...`);
-        } else {
-          // Show loading message instead of error
-          renderMarkdown(assistantBody, `*Reconnecting and checking database...*`);
-          logActivity(`Connection timeout, requesting DB refresh...`);
+        if (accumulated){
+          assistantMessage.content = accumulated;
         }
-      }
+        assistantMessage.streaming = false;
+        assistantMessage.is_complete = true;
+        setBusy(false);
+        if (state.modelStatus.phase !== 'idle'){
+          setModelStatus('idle', { model: modelLabel });
+        }
 
-      // Auto DB refresh after error to recover content (merge, don't replace)
-      setTimeout(() => {
-        nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 })
+        // Do final DB refresh to ensure we're in sync (merge, don't replace)
+        nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 1, timeoutMs: 5000 })
           .then(refreshData => {
             if (refreshData) {
               if (refreshData.messages) {
@@ -1722,44 +1686,87 @@ async function handleSend(event){
               }
               if (refreshData.current_session_id) state.currentSessionId = refreshData.current_session_id;
               renderHistory();
-              logActivity(`Auto DB refresh: restored ${state.messages.length} messages`);
-              setBusy(false);
-            } else {
-              renderMarkdown(assistantBody, `**Error:** Unable to connect to relay`);
-              setBusy(false);
+              logActivity(`Final DB refresh: ${state.messages.length} messages`);
             }
           })
-          .catch(refreshErr => {
-            console.warn('Auto DB refresh failed:', refreshErr);
-            renderMarkdown(assistantBody, `**Error:** ${err.message || err}`);
-            logActivity(`DB refresh failed: ${refreshErr.message || refreshErr}`, false);
-            setBusy(false);
-          });
-      }, 500); // Small delay to allow any pending writes to complete
-      if (state.modelStatus.phase !== 'error'){
-        setModelStatus('idle', { model: modelLabel });
-      }
-      assistantMessage.content = accumulated || assistantMessage.content || '';
-      assistantMessage.streaming = false;
-      assistantMessage.is_complete = false;
-    },
-    onStatus(statusPayload){
-      applyModelStatusEvent(statusPayload);
-      if (statusPayload && statusPayload.phase === 'loading') {
-        const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
-        setTypingPlaceholder(`_${desc}_`);
-        assistantMessage.content = `_${desc}_`;
-        assistantMessage.streaming = true;
-        assistantMessage.is_complete = false;
-      }
-    }
-  };
+          .catch(err => console.warn('Final refresh failed:', err));
+      },
+      onError(err, isPartial){
+        // Queue any remaining untyped content before stopping
+        if (accumulated && accumulated.length > currentTypingText.length) {
+          const remaining = accumulated.substring(currentTypingText.length);
+          queueTypingChunk(remaining);
+          queueTypingChunk('\n\n*[Connection interrupted. Refreshing...]*');
+          endTyping(); // Let typing finish gracefully
+        } else {
+          // Stop typing animation immediately
+          stopTyping();
+          // Always preserve partial message if we have accumulated content
+          if (accumulated) {
+            renderMarkdown(assistantBody, accumulated + `\n\n*[Connection interrupted. Refreshing...]*`);
+            logActivity(`Partial response received (${accumulated.length} chars), refreshing from DB...`);
+          } else {
+            // Show loading message instead of error
+            renderMarkdown(assistantBody, `*Reconnecting and checking database...*`);
+            logActivity(`Connection timeout, requesting DB refresh...`);
+          }
+        }
 
-  streamViaNkn({
-    message: text,
-    user_uuid: userMsgId,
-    assistant_uuid: assistantMsgId
-  }, handlers);
+        // Auto DB refresh after error to recover content (merge, don't replace)
+        setTimeout(() => {
+          nknSendRequestWithRetry({ event: 'chat.refresh' }, { maxAttempts: 3, timeoutMs: 8000 })
+            .then(refreshData => {
+              if (refreshData) {
+                if (refreshData.messages) {
+                  state.messages = mergeMessages(state.messages, refreshData.messages);
+                }
+                if (refreshData.sessions) {
+                  state.sessions = refreshData.sessions;
+                  renderSessions();
+                }
+                if (refreshData.current_session_id) state.currentSessionId = refreshData.current_session_id;
+                renderHistory();
+                logActivity(`Auto DB refresh: restored ${state.messages.length} messages`);
+                setBusy(false);
+              } else {
+                renderMarkdown(assistantBody, `**Error:** Unable to connect to relay`);
+                setBusy(false);
+              }
+            })
+            .catch(refreshErr => {
+              console.warn('Auto DB refresh failed:', refreshErr);
+              renderMarkdown(assistantBody, `**Error:** ${err.message || err}`);
+              logActivity(`DB refresh failed: ${refreshErr.message || refreshErr}`, false);
+              setBusy(false);
+            });
+        }, 500); // Small delay to allow any pending writes to complete
+        if (state.modelStatus.phase !== 'error'){
+          setModelStatus('idle', { model: modelLabel });
+        }
+        assistantMessage.content = accumulated || assistantMessage.content || '';
+        assistantMessage.streaming = false;
+        assistantMessage.is_complete = false;
+      },
+      onStatus(statusPayload){
+        applyModelStatusEvent(statusPayload);
+        if (statusPayload && statusPayload.phase === 'loading') {
+          const desc = statusPayload.description || `Loading ${(statusPayload.model || modelLabel)}…`;
+          setTypingPlaceholder(`_${desc}_`);
+          assistantMessage.content = `_${desc}_`;
+          assistantMessage.streaming = true;
+          assistantMessage.is_complete = false;
+        }
+      }
+    };
+
+    streamViaNkn({
+      message: text,
+      user_uuid: userMsgId,
+      assistant_uuid: assistantMsgId
+    }, handlers);
+  } finally {
+    state.pendingSend = false;
+  }
 }
 
 function decodePayload(payload){

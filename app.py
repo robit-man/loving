@@ -378,6 +378,30 @@ class Database:
             for row in rows
         ]
 
+    def get_message_by_uuid(self, uuid: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not uuid:
+            return None
+        with self._lock:
+            cur = self._connection.execute(
+                """
+                SELECT role, content, is_complete, last_seq
+                FROM messages
+                WHERE uuid = ?
+                ORDER BY id DESC
+                LIMIT 1;
+                """,
+                (uuid,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "role": row["role"],
+            "content": row["content"],
+            "is_complete": bool(row["is_complete"] if row["is_complete"] is not None else True),
+            "last_seq": row["last_seq"] if row["last_seq"] is not None else 0,
+        }
+
     def update_last_nkn_addr(self, user_id: int, address: str) -> None:
         with self._lock:
             self._connection.execute(
@@ -862,6 +886,8 @@ class NKNBridge:
 
 
 # === NKN relay server =======================================================
+# Cache completed assistant replies so we can replay duplicates without rerunning inference.
+ASSISTANT_RESPONSE_CACHE_TTL_S = 300
 
 class NKNRelayServer:
     def __init__(
@@ -880,11 +906,67 @@ class NKNRelayServer:
         self._active: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._known_clients: set[str] = set()
+        self._active_assistant_uuids: set[str] = set()
+        self._cached_assistant_replies: Dict[str, Tuple[str, int, float]] = {}
         bridge.register_listener(self._handle_message)
 
     def _send(self, to_addr: str, payload: Dict[str, Any]) -> None:
         with contextlib.suppress(Exception):
             self._bridge.send(to_addr, payload)
+
+    def _try_mark_assistant_uuid(self, uuid: Optional[str]) -> bool:
+        if not uuid:
+            return True
+        with self._lock:
+            if uuid in self._active_assistant_uuids:
+                return False
+            self._active_assistant_uuids.add(uuid)
+            return True
+
+    def _finalize_assistant_uuid(self, uuid: Optional[str], content: Optional[str], seq: Optional[int]) -> None:
+        if not uuid:
+            return
+        with self._lock:
+            self._active_assistant_uuids.discard(uuid)
+            if content is None:
+                return
+            now = time.time()
+            self._cached_assistant_replies[uuid] = (content, seq or 0, now)
+            cutoff = now - ASSISTANT_RESPONSE_CACHE_TTL_S
+            for key, (_, _, ts) in list(self._cached_assistant_replies.items()):
+                if ts < cutoff:
+                    del self._cached_assistant_replies[key]
+
+    def _get_cached_assistant_response(self, uuid: Optional[str]) -> Optional[Tuple[str, int, float]]:
+        if not uuid:
+            return None
+        with self._lock:
+            cached = self._cached_assistant_replies.get(uuid)
+            if not cached:
+                return None
+            return cached
+
+    def _replay_cached_assistant_response(self, src: str, req_id: Optional[str], cached: Tuple[str, int, float]) -> None:
+        if not req_id or not cached:
+            return
+        content, seq, _ = cached
+        seq = seq or 0
+        payload_content = content or ''
+        self._reply(src, req_id, "chat.ack", model=OLLAMA_MODEL_NAME)
+        self._send_model_status(
+            src,
+            req_id,
+            "idle",
+            total_seq=seq,
+            chars=len(payload_content),
+        )
+        self._send(src, {
+            "event": "chat.done",
+            "id": req_id,
+            "done": True,
+            "total_seq": seq,
+            "final_content": payload_content,
+        })
 
     def _send_model_status(
         self,
@@ -1204,6 +1286,25 @@ class NKNRelayServer:
         user_msg_uuid = payload.get("user_uuid")
         assistant_msg_uuid = payload.get("assistant_uuid")
 
+        if assistant_msg_uuid:
+            cached = self._get_cached_assistant_response(assistant_msg_uuid)
+            if cached:
+                print(f"[chat] Duplicate request {req_id} for uuid={assistant_msg_uuid} (cached replay)")
+                self._replay_cached_assistant_response(src, req_id, cached)
+                return
+            existing_msg = self._db.get_message_by_uuid(assistant_msg_uuid)
+            if existing_msg and existing_msg["role"] == "assistant" and existing_msg["is_complete"]:
+                print(f"[chat] Duplicate request {req_id} for uuid={assistant_msg_uuid} (DB replay)")
+                self._finalize_assistant_uuid(assistant_msg_uuid, existing_msg["content"], existing_msg["last_seq"])
+                cached = self._get_cached_assistant_response(assistant_msg_uuid)
+                if cached:
+                    self._replay_cached_assistant_response(src, req_id, cached)
+                    return
+            if not self._try_mark_assistant_uuid(assistant_msg_uuid):
+                print(f"[chat] Duplicate in-flight request {req_id} for uuid={assistant_msg_uuid}")
+                self._reply(src, req_id, "chat.ack", model=OLLAMA_MODEL_NAME)
+                return
+
         print(
             f"[chat] Start req={req_id} user={username} (user_id={user_id}) session={session_id} src={src} chars={len(text)} user_uuid={user_msg_uuid}"
         )
@@ -1261,6 +1362,7 @@ class NKNRelayServer:
         persist_interval_ms = 500  # Save to DB every 500ms
         final_content = ""
         streaming_signaled = False
+        completed_successfully = False
 
         def flush_batch():
             nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num, last_persist_time
@@ -1331,6 +1433,7 @@ class NKNRelayServer:
                 "total_seq": seq_num,
                 "final_content": final_content
             })
+            completed_successfully = True
 
         except Exception as exc:  # pragma: no cover - network path
             partial_content = "".join(full_reply_parts)
@@ -1358,6 +1461,11 @@ class NKNRelayServer:
         finally:
             with self._lock:
                 self._active.pop(req_id, None)
+            self._finalize_assistant_uuid(
+                assistant_msg_uuid,
+                final_content if completed_successfully else None,
+                seq_num if completed_successfully else None,
+            )
 
         full_reply = final_content.strip()
         if full_reply and assistant_msg_uuid:
