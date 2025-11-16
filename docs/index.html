@@ -1613,6 +1613,8 @@ async function handleSend(event){
           }
           if (currentTypingNode){
             setTypingPlaceholder('', true);
+            currentTypingText = '';
+            renderMarkdown(currentTypingNode, '');
           }
         }
         // Handle sequenced deltas (may be batched)
