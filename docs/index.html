@@ -7,6 +7,7 @@
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Radio+Canada:ital,wght@0,300..700;1,300..700&display=swap');
     :root {
+      --vh: 1vh;
       --bg-page: #05020c;
       --bg-card: rgba(255, 249, 244, 0.95);
       --bg-panel: rgba(255, 255, 255, 0.9);
@@ -27,7 +28,7 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      min-height: 100vh;
+      min-height: calc(var(--vh, 1vh) * 100);
       font-family: "Radio Canada", sans-serif;
       background: radial-gradient(circle at 20% 15%, rgba(255, 198, 223, 0.2), transparent 50%),
         radial-gradient(circle at 75% 10%, rgba(255, 255, 255, 0.12), transparent 45%),
@@ -149,7 +150,7 @@
       0%, 100% { transform: scale(0.8); opacity: 0.6; }
       50% { transform: scale(1.3); opacity: 1; }
     }
-    .app-shell { min-height: 100vh; display: flex; flex-direction: column; position: relative; z-index: 1; }
+    .app-shell { min-height: calc(var(--vh, 1vh) * 100); display: flex; flex-direction: column; position: relative; z-index: 1; }
     .app-header {
       padding: 16px 24px;
       border-bottom: none;
@@ -475,7 +476,7 @@
       border-radius: var(--radius-card) 0 0 var(--radius-card);
       display: flex; flex-direction: column; gap: 14px; padding: 18px;
       transition: margin-left 0.3s ease, opacity 0.3s ease;
-      max-height: calc(100vh - 150px); overflow: hidden;
+      max-height: calc(var(--vh, 1vh) * 100 - 150px); overflow: hidden;
       box-shadow: 0 20px 45px rgba(5, 0, 8, 0.18);
       backdrop-filter: blur(10px);
     }
@@ -556,7 +557,7 @@
     }
     .card {
       border-radius: 0 var(--radius-card) var(--radius-card) 0;
-      max-height: calc(100vh - 150px); display: flex; flex-direction: column;
+      max-height: calc(var(--vh, 1vh) * 100 - 150px); display: flex; flex-direction: column;
       overflow: hidden;
     }
     .sessions-sidebar.hidden + .card {
@@ -2494,6 +2495,14 @@ els.logoutBtn.addEventListener('click', handleLogout);
 els.form.addEventListener('submit', handleSend);
 els.showRegisterBtn.addEventListener('click', showRegisterForm);
 els.showLoginBtn.addEventListener('click', showLoginForm);
+
+function setViewportHeight(){
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+window.addEventListener('resize', setViewportHeight);
+window.addEventListener('orientationchange', setViewportHeight);
+setViewportHeight();
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
