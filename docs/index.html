@@ -341,7 +341,7 @@
     .chat-hint { font-size: 12px; color: var(--text-muted); }
     .chat-area {
       display: flex; flex-direction: column; gap: 14px;
-      flex: 1; min-height: 0; overflow: hidden;
+      flex: 1; min-height: 0; overflow: visible;
     }
     .chat-area.chat-disabled { opacity: 0.55; pointer-events: none; }
     .hidden { display: none !important; }
@@ -924,9 +924,21 @@ function saveCredentials(username, password){
       JSON.stringify({ username, password })
     );
     state.savedCreds = { username, password };
+    prefillSavedCreds();
   } catch (err){
     console.warn('Failed to save creds', err);
   }
+}
+
+function prefillSavedCreds(){
+  if (!els) return;
+  if (state.savedCreds){
+    els.loginUser.value = state.savedCreds.username || '';
+    els.loginPass.value = state.savedCreds.password || '';
+    return;
+  }
+  if (els.loginUser) els.loginUser.value = '';
+  if (els.loginPass) els.loginPass.value = '';
 }
 
 function logActivity(text, ok=true){
@@ -1012,8 +1024,10 @@ function syncRelayInputs(){
       logActivity(`NKN connection failed: ${err}`, false);
     });
   } else if (state.nkn.ready) {
-    // NKN already connected, check relay (may trigger auto-login)
-    checkRelay().catch((err) => toast(err.message || 'Relay probe failed', false));
+    // NKN already connected, check relay (maybe trigger auto-login)
+    checkRelay()
+      .then(() => ensureAutoLogin('nkn ready').catch(() => {}))
+      .catch((err) => toast(err.message || 'Relay probe failed', false));
   }
 }
 
@@ -1050,11 +1064,7 @@ async function checkRelay(){
     setModelStatus('idle', { description: `${info.model} ready`, model: info.model });
   }
 
-  // Attempt auto-login if we have saved credentials and haven't logged in yet
-  if (!state.session && state.savedCreds && !state.autoLoginTried){
-    logActivity('Triggering auto-login with saved credentials...');
-    await attemptAutoLogin();
-  }
+  await ensureAutoLogin('relay probe');
 
   return info;
 }
@@ -1164,28 +1174,37 @@ function applyModelStatusEvent(data){
 setModelStatus(state.modelStatus.phase, { description: state.modelStatus.description });
 
 async function attemptAutoLogin(){
-  if (state.autoLoginTried || state.autoLoginInProgress) return;
-  if (!state.savedCreds) return;
-  if (state.session) return;
+  if (state.autoLoginTried || state.autoLoginInProgress) return null;
+  if (!state.savedCreds || state.session) return null;
   state.autoLoginInProgress = true;
   logActivity('Attempting auto login…');
+  let result = null;
   try {
-    const result = await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
+    result = await performLogin(state.savedCreds.username, state.savedCreds.password, { auto: true });
     if (result && result.success){
       state.autoLoginTried = true;
-      return;
+      return result;
     }
     const invalidCreds = isInvalidCredentialsError(result && result.error);
     if (invalidCreds){
       localStorage.removeItem(AUTO_LOGIN_KEY);
       state.savedCreds = null;
       state.autoLoginTried = true;
+      prefillSavedCreds();
     } else {
       state.autoLoginTried = false;
     }
+    return result;
   } finally {
     state.autoLoginInProgress = false;
   }
+}
+
+async function ensureAutoLogin(context = 'auto'){
+  if (state.session || !state.savedCreds) return null;
+  if (state.autoLoginTried || state.autoLoginInProgress) return null;
+  logActivity(`Triggering auto-login with saved credentials (${context})...`);
+  return await attemptAutoLogin();
 }
 
 function renderBubble(role, content, messageId){
@@ -1584,6 +1603,7 @@ async function handleLogout(){
   // Clear saved credentials
   localStorage.removeItem(AUTO_LOGIN_KEY);
   state.savedCreds = null;
+  prefillSavedCreds();
   // Reset modal to connect state
   switchLoginModalState('connect');
 }
@@ -1898,10 +1918,15 @@ async function ensureNknClient(){
 
         // Check relay and trigger auto-login if credentials are saved
         checkRelay()
-          .then(() => {
-            // Auto-login happens in checkRelay if conditions are met
+          .then(async () => {
+            await ensureAutoLogin('nkn connect').catch(() => {});
             if (state.session) {
               logActivity('Auto-login successful');
+              return;
+            }
+            if (els.loginModal && els.loginModal.classList.contains('state-connect')) {
+              switchLoginModalState('auth');
+              logActivity('Connected! Please login or register to continue.');
             }
           })
           .catch((err) => toast(err.message || 'Relay probe failed', false));
@@ -2172,10 +2197,8 @@ function copyAddress(){
 function init(){
   els.pubkeyInput.value = state.relayPubkey;
 
-  // Pre-fill login form with saved credentials
+  prefillSavedCreds();
   if (state.savedCreds){
-    els.loginUser.value = state.savedCreds.username || '';
-    els.loginPass.value = state.savedCreds.password || '';
     logActivity('Saved credentials loaded');
   }
 
