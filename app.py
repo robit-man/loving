@@ -86,7 +86,7 @@ PASSWORD_SALT_BYTES = 16
 PASSWORD_HASH_SEPARATOR = "$"
 
 NKN_IDENTIFIER = os.environ.get("NKN_IDENTIFIER", "loving-relay")
-NKN_NUM_SUBCLIENTS = int(os.environ.get("NKN_NUM_SUBCLIENTS", "20"))
+NKN_NUM_SUBCLIENTS = int(os.environ.get("NKN_NUM_SUBCLIENTS", "8"))
 LEGACY_BRIDGE_DIR = BASE_DIR / ".nkn_bridge"
 DEFAULT_BRIDGE_DIR = BASE_DIR / "nkn_bridge"
 _bridge_dir_env = os.environ.get("NKN_BRIDGE_DIR")
@@ -672,8 +672,10 @@ const readline = require('readline');
 
 const SEED_HEX = (process.env.NKN_SEED_HEX || '').toLowerCase().replace(/^0x/, '');
 const IDENTIFIER = process.env.NKN_IDENTIFIER || 'loving-relay';
-const SUBCLIENTS = parseInt(process.env.NKN_NUM_SUBCLIENTS || '20', 10) || 20;
+const SUBCLIENTS = parseInt(process.env.NKN_NUM_SUBCLIENTS || '8', 10) || 8;
 const SEED_WS = (process.env.NKN_BRIDGE_SEED_WS || '').split(',').map(s => s.trim()).filter(Boolean);
+const TLS_ENV = process.env.NKN_TLS;
+const TLS_ENABLED = TLS_ENV === undefined ? undefined : TLS_ENV === 'true';
 
 function emit(obj) {
   try { process.stdout.write(JSON.stringify(obj) + '\\n'); }
@@ -689,13 +691,48 @@ const client = new nkn.MultiClient({
   seed: SEED_HEX,
   identifier: IDENTIFIER,
   numSubClients: SUBCLIENTS,
+  reconnectIntervalMin: 1000,
+  reconnectIntervalMax: 8000,
+  responseTimeout: 15000,
+  msgHoldingSeconds: 60,
+  encrypt: true,
+  ...(TLS_ENABLED === undefined ? {} : { tls: TLS_ENABLED }),
+  msgCacheExpiration: 300000,
   seedWsAddr: SEED_WS.length ? SEED_WS : undefined,
   wsConnHeartbeatTimeout: 120000,
 });
 
-client.on('connect', () => {
+const onConnect = () => {
   emit({ type: 'ready', address: String(client.addr || '') });
-});
+};
+
+if (typeof client.onConnect === 'function') {
+  client.onConnect(onConnect);
+} else {
+  client.on('connect', onConnect);
+}
+
+const onConnectFailed = (err) => {
+  emit({ type: 'fatal', error: `connect failed: ${String(err && err.message || err || 'unknown')}` });
+  process.exit(2);
+};
+
+if (typeof client.onConnectFailed === 'function') {
+  client.onConnectFailed(onConnectFailed);
+} else {
+  client.on('connectFailed', onConnectFailed);
+}
+
+const onWsError = (clientId, ev) => {
+  const detail = ev && ev.message ? ev.message : ev;
+  emit({ type: 'status', level: 'ws_error', message: `ws error on ${clientId}: ${String(detail || '')}` });
+};
+
+if (typeof client.onWsError === 'function') {
+  client.onWsError(onWsError);
+} else {
+  client.on('ws_error', onWsError);
+}
 
 client.onMessage(({src, payload, payloadType}) => {
   let text = '';

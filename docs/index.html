@@ -1010,6 +1010,7 @@ const state = {
     baseBackoffMs: 1000,
     maxBackoffMs: 20000,
     healthInterval: null,
+    healthFailures: 0,
   },
   autoLoginTried: false,
   autoLoginInProgress: false,
@@ -1274,7 +1275,7 @@ function logActivity(text, ok=true){
 
 function shouldRetryNknError(err){
   const msg = String(err && err.message || err || '').toLowerCase();
-  return msg.includes('message timeout') || msg.includes('failed to send') || msg.includes('timeout');
+  return msg.includes('message timeout') || msg.includes('failed to send') || msg.includes('timeout') || msg.includes("readystate is not") || msg.includes('rtcdatachannel');
 }
 
 function resetNknClient(){
@@ -1285,6 +1286,7 @@ function resetNknClient(){
   }
   state.nkn.client = null;
   state.nkn.ready = false;
+  state.nkn.healthFailures = 0;
   state.nkn.addr = '';
   state.nkn.connectPromise = null;
   scheduleNknReconnect('reset');
@@ -1302,9 +1304,19 @@ function scheduleNknReconnect(reason){
 
 function startNknHealthMonitor(){
   stopNknHealthMonitor();
+  state.nkn.healthFailures = 0;
   state.nkn.healthInterval = setInterval(() => {
     if (!state.nkn.ready) return;
-    ensureRelayReady().catch((err) => logActivity(`Relay ping failed: ${err.message || err}`, false));
+    ensureRelayReady()
+      .then(() => { state.nkn.healthFailures = 0; })
+      .catch((err) => {
+        state.nkn.healthFailures += 1;
+        logActivity(`Relay ping failed (#${state.nkn.healthFailures}): ${err.message || err}`, false);
+        if (state.nkn.healthFailures >= 3){
+          logActivity('Relay health degraded, resetting NKN client', false);
+          resetNknClient();
+        }
+      });
   }, 20000);
 }
 
@@ -2338,15 +2350,19 @@ async function ensureNknClient(){
       const client = new window.nkn.MultiClient({
         identifier: 'loving-web',
         seed: state.nkn.seed,
-        numSubClients: 20,
+        numSubClients: 8,
         msgCacheSize: 2048,
+        msgCacheExpiration: 300000,
+        msgHoldingSeconds: 60,
         reconnectIntervalMin: 1000,
         reconnectIntervalMax: 6000,
+        responseTimeout: 15000,
       });
       state.nkn.client = client;
       let resolved = false;
       client.on('connect', () => {
         state.nkn.ready = true;
+        state.nkn.healthFailures = 0;
         state.nkn.addr = String(client.addr || '');
         toast(state.nkn.addr ? `NKN connected · ${state.nkn.addr.slice(0, 12)}…` : 'NKN connected');
         setNknStatus('green', 'Connected');
@@ -2384,6 +2400,13 @@ async function ensureNknClient(){
         stopNknHealthMonitor();
         scheduleNknReconnect('close');
       });
+      if (typeof client.onWsError === 'function'){
+        client.onWsError((clientId, ev) => {
+          console.warn('nkn ws error', clientId, ev);
+          logActivity(`NKN websocket error (${clientId || 'unknown'}), reconnecting`, false);
+          resetNknClient();
+        });
+      }
       client.on('error', (err) => {
         console.error('nkn error', err);
         state.nkn.ready = false;
