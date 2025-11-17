@@ -13,7 +13,7 @@
       --bg-panel: rgba(255, 255, 255, 0.9);
       --bg-input: rgba(255, 249, 244, 0.75);
       --border-subtle: rgba(240, 170, 160, 0.35);
-      --text-main: #a0939d;
+      --text-main: #837780;
       --text-muted: rgba(113, 86, 114, 0.7);
       --accent: #ec4899;
       --accent-soft: rgba(236, 72, 147, 0.15);
@@ -2118,7 +2118,6 @@ async function handleSend(event){
 
     // Start typing animation for this assistant message
     startTypingAnimation(assistantBody, assistantMsgId);
-    setTypingPlaceholder('_Preparing model…_');
     const modelLabel = (state.relayInfo && state.relayInfo.model) || 'model';
     setModelStatus('loading', { model: modelLabel, description: `Loading ${modelLabel}…` });
     let streamingNoted = false;
@@ -2299,17 +2298,14 @@ async function handleSend(event){
         assistantMessage.streaming = false;
         assistantMessage.is_complete = false;
       },
-    onStatus(statusPayload){
-      applyModelStatusEvent(statusPayload);
-      syncTypingPlaceholderToModelStatus(statusPayload);
-      if (statusPayload && statusPayload.phase === 'loading') {
-        const desc = statusPayload.description || statusPayload.detail || `Loading ${(statusPayload.model || modelLabel)}…`;
-        setTypingPlaceholder(`_${desc}_`);
-        assistantMessage.content = `_${desc}_`;
-        assistantMessage.streaming = true;
-        assistantMessage.is_complete = false;
+      onStatus(statusPayload){
+        applyModelStatusEvent(statusPayload);
+        syncTypingPlaceholderToModelStatus(statusPayload);
+        if (statusPayload && statusPayload.phase === 'loading') {
+          assistantMessage.streaming = true;
+          assistantMessage.is_complete = false;
+        }
       }
-    }
     };
 
     streamViaNkn({
