@@ -86,7 +86,7 @@ PASSWORD_SALT_BYTES = 16
 PASSWORD_HASH_SEPARATOR = "$"
 
 NKN_IDENTIFIER = os.environ.get("NKN_IDENTIFIER", "loving-relay")
-NKN_NUM_SUBCLIENTS = int(os.environ.get("NKN_NUM_SUBCLIENTS", "10"))
+NKN_NUM_SUBCLIENTS = int(os.environ.get("NKN_NUM_SUBCLIENTS", "20"))
 LEGACY_BRIDGE_DIR = BASE_DIR / ".nkn_bridge"
 DEFAULT_BRIDGE_DIR = BASE_DIR / "nkn_bridge"
 _bridge_dir_env = os.environ.get("NKN_BRIDGE_DIR")
@@ -672,7 +672,7 @@ const readline = require('readline');
 
 const SEED_HEX = (process.env.NKN_SEED_HEX || '').toLowerCase().replace(/^0x/, '');
 const IDENTIFIER = process.env.NKN_IDENTIFIER || 'loving-relay';
-const SUBCLIENTS = parseInt(process.env.NKN_NUM_SUBCLIENTS || '10', 10) || 10;
+const SUBCLIENTS = parseInt(process.env.NKN_NUM_SUBCLIENTS || '20', 10) || 20;
 const SEED_WS = (process.env.NKN_BRIDGE_SEED_WS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function emit(obj) {

@@ -673,6 +673,11 @@
     }
 
     @media (max-width: 640px) {
+      .app-header{
+        padding:0.5rem 1rem 0rem;
+        max-height:2rem;
+        overflow:clip;
+      }
       .app-main{
         padding:1rem;
       }
@@ -2337,7 +2342,7 @@ async function ensureNknClient(){
       const client = new window.nkn.MultiClient({
         identifier: 'loving-web',
         seed: state.nkn.seed,
-        numSubClients: 10,
+        numSubClients: 20,
         msgCacheSize: 2048,
         reconnectIntervalMin: 1000,
         reconnectIntervalMax: 6000,
