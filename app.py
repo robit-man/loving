@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import csv
 import datetime
 import hashlib
 import hmac
@@ -948,6 +949,20 @@ class NKNBridge:
 # Cache completed assistant replies so we can replay duplicates without rerunning inference.
 ASSISTANT_RESPONSE_CACHE_TTL_S = 300
 
+NVIDIA_SMI_FIELDS = (
+    "index",
+    "name",
+    "uuid",
+    "utilization.gpu",
+    "utilization.memory",
+    "memory.used",
+    "memory.total",
+    "temperature.gpu",
+    "power.draw",
+)
+NVIDIA_SMI_QUERY = ",".join(NVIDIA_SMI_FIELDS)
+NVIDIA_SMI_TIMEOUT_S = 5
+
 class NKNRelayServer:
     def __init__(
         self,
@@ -968,6 +983,12 @@ class NKNRelayServer:
         self._active_assistant_uuids: set[str] = set()
         self._cached_assistant_replies: Dict[str, Tuple[str, int, float]] = {}
         self._model_warmed = False
+        self._hardware_stop = threading.Event()
+        self._nvidia_smi_path = shutil.which("nvidia-smi")
+        if not self._nvidia_smi_path:
+            print("[hardware] nvidia-smi not found; GPU stats disabled")
+        self._hardware_thread = threading.Thread(target=self._hardware_loop, daemon=True)
+        self._hardware_thread.start()
         bridge.register_listener(self._handle_message)
 
     def _send(self, to_addr: str, payload: Dict[str, Any]) -> None:
@@ -1105,6 +1126,110 @@ class NKNRelayServer:
             req_id = payload.get("id")
             if req_id:
                 self._cancel(req_id)
+
+    def _hardware_loop(self) -> None:
+        while not self._hardware_stop.is_set():
+            stats = self._collect_hardware_stats()
+            if stats:
+                for client in list(self._known_clients):
+                    self._send(client, {"event": "hardware.stats", "stats": stats})
+            time.sleep(5)
+
+    def _collect_hardware_stats(self) -> Dict[str, Any]:
+        stats: Dict[str, Any] = {"model_ready": self._model_warmed, "ts": time.time()}
+        devices: List[Dict[str, Any]] = []
+        stats["devices"] = devices
+        stats["available_devices"] = 0
+        if not self._nvidia_smi_path:
+            stats["gpu_available"] = False
+            stats["error"] = "nvidia-smi not found"
+            return stats
+
+        def _parse_float(value: Optional[str]) -> Optional[float]:
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                return None
+
+        def _parse_int(value: Optional[str]) -> Optional[int]:
+            parsed = _parse_float(value)
+            if parsed is None:
+                return None
+            return int(parsed)
+
+        try:
+            output = subprocess.check_output(
+                [self._nvidia_smi_path, f"--query-gpu={NVIDIA_SMI_QUERY}", "--format=csv,noheader,nounits"],
+                stderr=subprocess.STDOUT,
+                timeout=NVIDIA_SMI_TIMEOUT_S,
+                text=True,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stats["gpu_available"] = False
+            stats["error"] = f"nvidia-smi timeout: {exc}"
+            return stats
+        except subprocess.CalledProcessError as exc:
+            stats["gpu_available"] = False
+            stats["error"] = exc.output.strip() if exc.output else str(exc)
+            return stats
+        except FileNotFoundError:
+            stats["gpu_available"] = False
+            stats["error"] = "nvidia-smi not found"
+            return stats
+
+        try:
+            for row in csv.reader(output.splitlines(), skipinitialspace=True):
+                if not row or len(row) < len(NVIDIA_SMI_FIELDS):
+                    continue
+                idx = _parse_int(row[0])
+                name = row[1].strip() if row[1] else ""
+                uuid = row[2].strip() if row[2] else ""
+                util_gpu = _parse_int(row[3])
+                util_mem = _parse_int(row[4])
+                mem_used = _parse_int(row[5])
+                mem_total = _parse_int(row[6])
+                temperature = _parse_float(row[7])
+                power_draw = _parse_float(row[8])
+                devices.append({
+                    "index": idx,
+                    "name": name,
+                    "uuid": uuid,
+                    "gpu_util_percent": util_gpu,
+                    "mem_util_percent": util_mem,
+                    "mem_used_mb": mem_used,
+                    "mem_total_mb": mem_total,
+                    "temperature_c": temperature,
+                    "power_draw_w": power_draw,
+                })
+        except Exception as exc:
+            stats["gpu_available"] = False
+            stats["error"] = str(exc)
+            return stats
+
+        stats["devices"] = devices
+        stats["available_devices"] = len(devices)
+        if not devices:
+            stats["gpu_available"] = False
+            stats.setdefault("error", "no GPUs detected")
+            return stats
+
+        primary = devices[0]
+        stats.update({
+            "gpu_available": True,
+            "gpu_count": len(devices),
+            "gpu_util_percent": primary.get("gpu_util_percent"),
+            "mem_util_percent": primary.get("mem_util_percent"),
+            "mem_used_mb": primary.get("mem_used_mb"),
+            "mem_total_mb": primary.get("mem_total_mb"),
+            "temperature_c": primary.get("temperature_c"),
+            "power_draw_w": primary.get("power_draw_w"),
+        })
+        return stats
 
     def _handle_register(self, src: str, payload: Dict[str, Any]) -> None:
         req_id = payload.get("id")
@@ -1419,6 +1544,7 @@ class NKNRelayServer:
         self._model_warmed = True
 
         # Streaming with batched deltas and progressive persistence
+        start_time = time.time()
         full_reply_parts: List[str] = []
         seq_num = 0
         batch_buffer: List[str] = []
@@ -1430,11 +1556,36 @@ class NKNRelayServer:
         persist_interval_ms = 500  # Save to DB every 500ms
         final_content = ""
         streaming_signaled = False
-        final_emitted = False
+        status_chars = 0
+        last_status_time = start_time
+        first_chunk_time: Optional[float] = None
+        status_payload_sent_once = False
         completed_successfully = False
 
+        def emit_streaming_status(detail: Optional[str] = None) -> None:
+            nonlocal status_chars, last_status_time, status_payload_sent_once
+            now = time.time()
+            elapsed = now - last_status_time
+            tps = 0.0
+            if elapsed > 0:
+                tps = (status_chars / 4) / elapsed
+            payload: Dict[str, Any] = {"tps": round(tps, 2)}
+            if detail:
+                payload["detail"] = detail
+            if first_chunk_time and not status_payload_sent_once:
+                payload["latency_ms"] = int((first_chunk_time - start_time) * 1000)
+                status_payload_sent_once = True
+            self._send_model_status(
+                src,
+                req_id,
+                "streaming",
+                **payload,
+            )
+            status_chars = 0
+            last_status_time = now
+
         def flush_batch():
-            nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num, last_persist_time
+            nonlocal batch_buffer, batch_start_seq, last_send_time, seq_num, last_persist_time, status_chars
             if not batch_buffer:
                 return
             batch_delta = "".join(batch_buffer)
@@ -1450,6 +1601,8 @@ class NKNRelayServer:
             batch_buffer = []
             batch_start_seq = seq_num
             last_send_time = time.time()
+            status_chars += len(batch_delta)
+            emit_streaming_status()
 
             # Progressive persistence: save partial content periodically
             accumulated = "".join(full_reply_parts)
@@ -1476,6 +1629,7 @@ class NKNRelayServer:
                             "streaming",
                             started=time.time(),
                         )
+                        first_chunk_time = first_chunk_time or time.time()
                     full_reply_parts.append(delta)
                     batch_buffer.append(delta)
                     # Calculate batch metrics
@@ -1507,7 +1661,6 @@ class NKNRelayServer:
                     "batch_size": 1,
                     "timestamp": time.time()
                 })
-                final_emitted = True
             self._send(src, {
                 "event": "chat.done",
                 "id": req_id,

@@ -195,6 +195,29 @@
       background: rgba(254,226,226,0.6);
       color: #b91c1c;
     }
+    .model-status-wrapper { display: flex; align-items: center; gap: 8px; position: relative; }
+    .model-spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.15);
+      border-top-color: rgba(236, 72, 147, 0.9);
+      animation: spinner-rotate 1.2s linear infinite;
+    }
+    .model-spinner.hidden { display: none; }
+    @keyframes spinner-rotate {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .model-metrics {
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      color: var(--text-muted);
+      gap: 4px;
+      min-width: 120px;
+    }
+    .model-metrics span { display: block; }
     .app-main { flex: 1; padding: 24px 16px 32px; display: flex; justify-content: center; }
     .card {
       width: 100%; max-width: 900px; background: var(--bg-card);
@@ -246,6 +269,40 @@
       border: none; background: rgba(255,255,255,0.9);
       flex-shrink: 0; flex-flow: wrap;
       box-shadow: 0 12px 35px rgba(15, 0, 10, 0.12);
+    }
+    .hardware-panel {
+      margin-top: 8px;
+      padding: 12px 16px;
+      border-radius: var(--radius-card);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 10px 20px rgba(15, 0, 10, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .hardware-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: space-between;
+    }
+    .hardware-bar {
+      flex: 1;
+      height: 6px;
+      background: rgba(236, 72, 147, 0.1);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .hardware-bar span {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: linear-gradient(120deg, #ec4899, #b91c85);
+      width: 0%;
+      transition: width 0.4s ease;
     }
     .sidebar-inline-toggle {
       display: none;
@@ -680,7 +737,14 @@
         <div class="session-bar">
           <button class="sidebar-inline-toggle" id="sidebar-toggle-inline" title="Show chats">☰</button>
           <span id="session-status">Not signed in.</span>
-          <span class="model-status-pill" id="model-status-pill" data-phase="idle">Model idle</span>
+          <div class="model-status-wrapper">
+            <span class="model-status-pill" id="model-status-pill" data-phase="idle">Model idle</span>
+            <span class="model-spinner hidden" id="model-spinner" aria-hidden="true"></span>
+          </div>
+          <div class="model-metrics">
+            <span id="model-latency">Latency · —</span>
+            <span id="model-tps">TPS · —</span>
+          </div>
           <button type="button" id="logout-btn" aria-label="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" role="img" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -688,6 +752,27 @@
               <line x1="21" y1="12" x2="9" y2="12"/>
             </svg>
           </button>
+        </div>
+        <div class="hardware-panel" id="hardware-panel">
+          <div class="hardware-row">
+            <span>GPU Util</span>
+            <div class="hardware-bar">
+              <span id="gpu-util-bar"></span>
+            </div>
+            <span id="gpu-util-label">—%</span>
+          </div>
+          <div class="hardware-row">
+            <span>GPU Memory</span>
+            <span id="gpu-mem-label">— / — MB</span>
+          </div>
+          <div class="hardware-row">
+            <span>Temp</span>
+            <span id="gpu-temp-label">—°C</span>
+          </div>
+          <div class="hardware-row">
+            <span>Status</span>
+            <span id="hardware-status-label">Unknown</span>
+          </div>
         </div>
         <div id="chat-area" class="chat-area">
           <div class="chat-messages" id="chat-messages"></div>
@@ -864,6 +949,9 @@ const els = {
   chatArea: document.getElementById('chat-area'),
   chatInterface: document.querySelector('.chat-interface'),
   modelStatusPill: document.getElementById('model-status-pill'),
+  modelSpinner: document.getElementById('model-spinner'),
+  modelLatency: document.getElementById('model-latency'),
+  modelTps: document.getElementById('model-tps'),
   sessionsSidebar: document.getElementById('sessions-sidebar'),
   sidebarToggle: document.getElementById('sidebar-toggle'),
   sidebarInlineToggle: document.getElementById('sidebar-toggle-inline'),
@@ -880,6 +968,12 @@ const els = {
   logoutBtn: document.getElementById('logout-btn'),
   sessionStatus: document.getElementById('session-status'),
   activity: document.getElementById('activity-log'),
+  hardwarePanel: document.getElementById('hardware-panel'),
+  gpuUtilBar: document.getElementById('gpu-util-bar'),
+  gpuUtilLabel: document.getElementById('gpu-util-label'),
+  gpuMemLabel: document.getElementById('gpu-mem-label'),
+  gpuTempLabel: document.getElementById('gpu-temp-label'),
+  hardwareStatusLabel: document.getElementById('hardware-status-label'),
   chat: document.getElementById('chat-messages'),
   input: document.getElementById('chat-input'),
   form: document.getElementById('chat-form'),
@@ -1266,12 +1360,31 @@ function setModelStatus(phase, meta = {}){
     els.modelStatusPill.textContent = description;
     els.modelStatusPill.dataset.phase = phase;
     applyIndicatorColor(els.modelStatusPill, phaseToColor(phase));
+    setModelSpinner(phase === 'loading');
     if (meta.detail || meta.error){
       els.modelStatusPill.title = meta.detail || meta.error;
     } else if (meta.model || (state.relayInfo && state.relayInfo.model)){
       els.modelStatusPill.title = meta.model || state.relayInfo.model || '';
     } else {
-      els.modelStatusPill.removeAttribute('title');
+    els.modelStatusPill.removeAttribute('title');
+    }
+  }
+}
+
+function setModelSpinner(visible){
+  if (!els.modelSpinner) return;
+  els.modelSpinner.classList.toggle('hidden', !visible);
+}
+
+function setModelMetrics(latencyMs, tps){
+  if (els.modelLatency){
+    els.modelLatency.textContent = `Latency · ${latencyMs ? `${Math.round(latencyMs)}ms` : '—'}`;
+  }
+  if (els.modelTps){
+    if (tps !== undefined && tps !== null && !Number.isNaN(Number(tps))){
+      els.modelTps.textContent = `TPS · ${Number(tps).toFixed(2)}`;
+    } else {
+      els.modelTps.textContent = 'TPS · —';
     }
   }
 }
@@ -1295,11 +1408,38 @@ function getPeerCount(info){
 function applyModelStatusEvent(data){
   if (!data) return;
   const phase = data.phase || 'idle';
+  setModelMetrics(data.latency_ms, data.tps);
   setModelStatus(phase, data);
   const detail = data.detail || data.description || '';
   const ok = phase !== 'error';
   const activity = detail ? `${phase} · ${detail}` : phase;
   logActivity(`Model ${activity}`, ok);
+}
+
+function updateHardwareStats(stats){
+  if (!stats || !els.hardwarePanel) return;
+  const hasGpu = stats.gpu_available;
+  if (hasGpu && els.gpuUtilBar){
+    const util = Math.min(Math.max(Number(stats.gpu_util_percent || 0), 0), 100);
+    els.gpuUtilBar.style.width = `${util}%`;
+    els.gpuUtilLabel.textContent = `${util.toFixed(0)}%`;
+  }
+  if (hasGpu && els.gpuMemLabel){
+    const used = Number(stats.mem_used_mb || 0);
+    const total = Number(stats.mem_total_mb || 0);
+    els.gpuMemLabel.textContent = `${used} / ${total} MB`;
+  }
+  if (els.gpuTempLabel){
+    els.gpuTempLabel.textContent = `${stats.temperature_c ? `${stats.temperature_c.toFixed(0)}°C` : '—°C'}`;
+  }
+  if (els.hardwareStatusLabel){
+    if (!hasGpu){
+      els.hardwareStatusLabel.textContent = stats.error ? stats.error : 'GPU unavailable';
+    } else {
+      const ready = stats.model_ready ? 'Model ready' : 'Model loading';
+      els.hardwareStatusLabel.textContent = `${ready} · ${stats.power_draw_w ? `${stats.power_draw_w.toFixed(1)}W` : ''}`;
+    }
+  }
 }
 
 setModelStatus(state.modelStatus.phase, { description: state.modelStatus.description });
@@ -2116,6 +2256,8 @@ function handleNknMessage(src, payload){
   if (!reqId){
     if (event === 'relay.info'){
       toast('Relay info received');
+    } else if (event === 'hardware.stats'){
+      updateHardwareStats(data.stats || data);
     }
     // Return false - no auto-ACK needed
     return false;
