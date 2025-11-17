@@ -13,8 +13,8 @@
       --bg-panel: rgba(255, 255, 255, 0.9);
       --bg-input: rgba(255, 249, 244, 0.75);
       --border-subtle: rgba(240, 170, 160, 0.35);
-      --text-main: #3d2b26;
-      --text-muted: rgba(78, 55, 50, 0.7);
+      --text-main: #a0939d;
+      --text-muted: rgba(113, 86, 114, 0.7);
       --accent: #ec4899;
       --accent-soft: rgba(236, 72, 147, 0.15);
       --radius-card: 18px;
@@ -169,12 +169,13 @@
     .status-pill.status-green { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
     .status-pill.status-yellow { background: rgba(234, 179, 8, 0.12); color: #b45309; }
     .status-pill.status-red { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+    .status-pill.status-pink { background: rgba(236, 72, 147, 0.15); color: #ec4899; }
     .model-status-pill {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 14px; border-radius: 999px;
       font-size: 12px; font-weight: 600;
       background: rgba(243, 232, 255, 0.5);
-      color: #6b21a8;
+      color: #ff9dff;
       border: none;
       box-shadow: 0 10px 24px rgba(79, 70, 229, 0.15);
       transition: background 0.2s ease, color 0.2s ease;
@@ -263,13 +264,41 @@
       border: none; background: linear-gradient(120deg, #ec4899, #b91c85);
       color: #fff; cursor: pointer; box-shadow: 0 12px 24px rgba(185,28,133,0.35);
     }
-    .session-bar {
+  .session-bar {
       display: flex; align-items: center; gap: 12px; justify-content: space-between;
       padding: 12px 16px; border-radius: var(--radius-card);
       border: none; background: rgba(255,255,255,0.9);
       flex-shrink: 0; flex-flow: wrap;
       box-shadow: 0 12px 35px rgba(15, 0, 10, 0.12);
-    }
+  }
+  .session-hardware-inline {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      min-width: 140px;
+  }
+  .session-hardware-bar {
+      flex: 1;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(236, 72, 147, 0.15);
+      overflow: hidden;
+      position: relative;
+  }
+  .session-hardware-bar span {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: linear-gradient(120deg, #ec4899, #b91c85);
+      width: 0%;
+      transition: width 0.4s ease;
+  }
+  .session-hardware-inline span:last-child {
+      white-space: nowrap;
+      font-size: 10px;
+  }
     .hardware-panel {
       margin-top: 8px;
       padding: 12px 16px;
@@ -427,6 +456,28 @@
     .chat-area {
       display: flex; flex-direction: column; gap: 14px;
       flex: 1; min-height: 0; overflow: visible;
+    }
+    .reauth-action {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .reauth-action button {
+      border-radius: 999px;
+      padding: 4px 12px;
+      border: none;
+      background: rgba(236, 72, 147, 0.15);
+      color: #b91c85;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+    .reauth-action button:hover {
+      transform: translateY(-1px);
+      opacity: 0.85;
     }
     .chat-area.chat-disabled { opacity: 0.55; pointer-events: none; }
     .hidden { display: none !important; }
@@ -644,6 +695,29 @@
       .chat-interface.sidebar-hidden .chat-main-content {
         padding-left: 16px;
       }
+      .hardware-panel {
+        display: none;
+      }
+      .session-bar {
+        align-items: flex-start;
+      }
+      .session-bar .model-metrics {
+        order: 4;
+        flex-direction: row;
+        gap: 12px;
+      }
+      .session-hardware-inline {
+        order: 5;
+        display: flex;
+        width: 100%;
+      }
+      .session-hardware-inline[data-gpu-available="false"] {
+        display: none;
+      }
+      .session-hardware-bar {
+        width: 100px;
+        height: 4px;
+      }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -745,6 +819,12 @@
             <span id="model-latency">Latency · —</span>
             <span id="model-tps">TPS · —</span>
           </div>
+          <div class="session-hardware-inline" id="session-hardware-inline" data-gpu-available="false" aria-hidden="true">
+            <div class="session-hardware-bar">
+              <span id="session-gpu-util-bar"></span>
+            </div>
+            <span id="session-gpu-util-label-small">—%</span>
+          </div>
           <button type="button" id="logout-btn" aria-label="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" role="img" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -781,7 +861,6 @@
               <input id="chat-input" type="text" class="chat-input-field-control" placeholder="Offer a question or reflection for NOVA-Q…" required autocomplete="off">
               <button class="btn chat-input-submit" type="submit" id="send-btn" aria-label="Send message">↗</button>
             </div>
-            <div class="chat-hint">Streaming replies are stored per account.</div>
           </form>
         </div>
       </section>
@@ -978,6 +1057,9 @@ const els = {
   input: document.getElementById('chat-input'),
   form: document.getElementById('chat-form'),
   sendBtn: document.getElementById('send-btn'),
+  sessionHardwareInline: document.getElementById('session-hardware-inline'),
+  sessionGpuUtilBarInline: document.getElementById('session-gpu-util-bar'),
+  sessionGpuUtilLabelInline: document.getElementById('session-gpu-util-label-small'),
 };
 
 function toast(text, ok=true){
@@ -1075,6 +1157,12 @@ function bindChatInputEvents(){
 function handleChatInputInputEvent(){
   const input = els.input;
   if (!input) return;
+  if (isMobileViewport()){
+    if (input.tagName.toLowerCase() === 'textarea'){
+      downgradeChatInputToInput();
+    }
+    return;
+  }
   if (input.tagName.toLowerCase() === 'input'){
     checkExpandInputOverflow();
   } else {
@@ -1087,6 +1175,7 @@ function handleChatInputInputEvent(){
 }
 
 function handleChatInputKeydownEvent(event){
+  if (isMobileViewport()) return;
   if (!els.input) return;
   if (els.input.tagName.toLowerCase() === 'input' && (event.ctrlKey || event.metaKey) && event.key === 'Enter'){
     event.preventDefault();
@@ -1095,6 +1184,7 @@ function handleChatInputKeydownEvent(event){
 }
 
 function checkExpandInputOverflow(){
+  if (isMobileViewport()) return;
   const input = els.input;
   if (!input || input.tagName.toLowerCase() !== 'input') return;
   if (!input.value) return;
@@ -1104,6 +1194,7 @@ function checkExpandInputOverflow(){
 }
 
 function upgradeChatInputToTextarea({ addNewline = false } = {}){
+  if (isMobileViewport()) return;
   const input = els.input;
   if (!input || input.tagName.toLowerCase() === 'textarea') return;
   const wrapper = document.querySelector('.chat-input-field');
@@ -1333,7 +1424,7 @@ function describeModelPhase(phase, meta = {}){
   }
 }
 
-const statusColorClasses = ['status-green', 'status-yellow', 'status-red'];
+const statusColorClasses = ['status-green', 'status-yellow', 'status-red', 'status-pink'];
 
 function applyIndicatorColor(el, colorClass){
   if (!el) return;
@@ -1391,7 +1482,19 @@ function setModelMetrics(latencyMs, tps){
 
 function setNknStatus(level, label, peers){
   if (!els.nknStatusChat) return;
-  const colorClass = level === 'yellow' ? 'status-yellow' : level === 'red' ? 'status-red' : 'status-green';
+  const normalizedLevel = (level || '').toLowerCase();
+  const normalizedLabel = (label || '').toLowerCase();
+  let colorClass = 'status-pink';
+  if (normalizedLevel === 'green' || /connected/i.test(normalizedLabel)) {
+    colorClass = 'status-green';
+  } else if (normalizedLevel === 'yellow' || /connecting/i.test(normalizedLabel)) {
+    colorClass = 'status-yellow';
+  } else if (
+    normalizedLevel === 'red' ||
+    /(disconnect|disconnected|error|fail|hard failure|down)/i.test(normalizedLabel)
+  ) {
+    colorClass = 'status-red';
+  }
   applyIndicatorColor(els.nknStatusChat, colorClass);
   const suffix = peers !== undefined ? ` · Peers: ${peers}` : '';
   els.nknStatusChat.textContent = `${label || els.nknStatusChat.textContent}${suffix}`;
@@ -1419,10 +1522,10 @@ function applyModelStatusEvent(data){
 function updateHardwareStats(stats){
   if (!stats || !els.hardwarePanel) return;
   const hasGpu = stats.gpu_available;
+  const utilPercent = Math.min(Math.max(Number(stats.gpu_util_percent || 0), 0), 100);
   if (hasGpu && els.gpuUtilBar){
-    const util = Math.min(Math.max(Number(stats.gpu_util_percent || 0), 0), 100);
-    els.gpuUtilBar.style.width = `${util}%`;
-    els.gpuUtilLabel.textContent = `${util.toFixed(0)}%`;
+    els.gpuUtilBar.style.width = `${utilPercent}%`;
+    els.gpuUtilLabel.textContent = `${utilPercent.toFixed(0)}%`;
   }
   if (hasGpu && els.gpuMemLabel){
     const used = Number(stats.mem_used_mb || 0);
@@ -1438,6 +1541,15 @@ function updateHardwareStats(stats){
     } else {
       const ready = stats.model_ready ? 'Model ready' : 'Model loading';
       els.hardwareStatusLabel.textContent = `${ready} · ${stats.power_draw_w ? `${stats.power_draw_w.toFixed(1)}W` : ''}`;
+    }
+  }
+  if (els.sessionHardwareInline){
+    els.sessionHardwareInline.dataset.gpuAvailable = hasGpu ? 'true' : 'false';
+    if (els.sessionGpuUtilBarInline){
+      els.sessionGpuUtilBarInline.style.width = hasGpu ? `${utilPercent}%` : '0%';
+    }
+    if (els.sessionGpuUtilLabelInline){
+      els.sessionGpuUtilLabelInline.textContent = hasGpu ? `${utilPercent.toFixed(0)}%` : '—%';
     }
   }
 }
@@ -1503,6 +1615,25 @@ function renderBubble(role, content, messageId){
   els.chat.appendChild(wrapper);
   els.chat.scrollTop = els.chat.scrollHeight;
   return body;
+}
+
+function addReloadAction(body){
+  if (!body) return;
+  const existing = body.querySelector('.reauth-action');
+  if (existing) return;
+  const action = document.createElement('div');
+  action.className = 'reauth-action';
+  const label = document.createElement('span');
+  label.textContent = 'Session expired. Reload to re-authenticate.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Reload';
+  button.addEventListener('click', () => {
+    window.location.reload();
+  });
+  action.appendChild(label);
+  action.appendChild(button);
+  body.appendChild(action);
 }
 
 function renderHistory(){
@@ -1858,6 +1989,15 @@ function applyLoginSuccess(username, sessions, currentSessionId, messages){
   updateClientCount();
 }
 
+function updateClientCount(){
+  const peers = getPeerCount(state.relayInfo);
+  if (peers !== undefined){
+    const isAuthed = !!state.session;
+    const label = isAuthed ? `Signed in as ${state.session?.username}` : 'Connected';
+    setNknStatus(isAuthed ? 'pink' : 'green', label, peers);
+  }
+}
+
 async function handleLogout(){
   if (!state.session) return;
   try {
@@ -2081,6 +2221,24 @@ async function handleSend(event){
           .catch(err => console.warn('Final refresh failed:', err));
       },
       onError(err, isPartial){
+        const errMsg = err && err.message ? err.message : (typeof err === 'string' ? err : '');
+        const isAuthError = typeof errMsg === 'string' && /not_authenticated/i.test(errMsg);
+        if (isAuthError){
+          stopTyping();
+          const promptText = '**Session expired.** Please reload to re-authenticate.';
+          renderMarkdown(assistantBody, promptText);
+          addReloadAction(assistantBody);
+          setBusy(false);
+          if (state.modelStatus.phase !== 'idle'){
+            setModelStatus('idle', { model: modelLabel });
+          }
+          assistantMessage.content = promptText;
+          assistantMessage.streaming = false;
+          assistantMessage.is_complete = false;
+          logActivity('Session expired – prompt reload to re-authenticate', false);
+          return;
+        }
+
         // Queue any remaining untyped content before stopping
         if (accumulated && accumulated.length > currentTypingText.length) {
           const remaining = accumulated.substring(currentTypingText.length);
@@ -2477,6 +2635,7 @@ function init(){
 
   prefillSavedCreds();
   bindChatInputEvents();
+  ensureInputModeMatchesViewport();
   if (state.savedCreds){
     logActivity('Saved credentials loaded');
   }
@@ -2492,6 +2651,13 @@ function init(){
 
 function isMobileViewport(){
   return window.matchMedia('(max-width: 640px)').matches;
+}
+
+function ensureInputModeMatchesViewport(){
+  if (!els.input) return;
+  if (isMobileViewport() && els.input.tagName.toLowerCase() === 'textarea'){
+    downgradeChatInputToInput();
+  }
 }
 
 function setSidebarHidden(hidden){
@@ -2642,8 +2808,14 @@ function setViewportHeight(){
   const vh = window.innerHeight * 0.01;
   document.documentElement.style.setProperty('--vh', `${vh}px`);
 }
-window.addEventListener('resize', setViewportHeight);
-window.addEventListener('orientationchange', setViewportHeight);
+window.addEventListener('resize', () => {
+  setViewportHeight();
+  ensureInputModeMatchesViewport();
+});
+window.addEventListener('orientationchange', () => {
+  setViewportHeight();
+  ensureInputModeMatchesViewport();
+});
 setViewportHeight();
 
 // Cleanup on page unload
