@@ -2406,10 +2406,21 @@ async function ensureNknClient(){
           if (typeof clientId === 'string') {
             cid = clientId;
           } else if (clientId && typeof clientId === 'object') {
-            cid = clientId.id || clientId.addr || clientId.address || clientId.name || 'object';
+            cid = clientId.id || clientId.addr || clientId.address || clientId.name || clientId._name || 'object';
+            if (!cid && clientId.url) cid = clientId.url;
+            if (!cid && clientId._url) cid = clientId._url;
           }
-          const detail = ev && ev.message ? ev.message : ev && ev.type ? ev.type : ev;
-          console.warn('nkn ws error', clientId, detail);
+          let detail = '';
+          if (ev) {
+            detail = ev.message || ev.type || ev.code || ev.error || '';
+            if (!detail && ev.target && (ev.target.url || ev.target._url)) {
+              detail = ev.target.url || ev.target._url;
+            }
+            if (ev.error && ev.error.code) {
+              detail = detail ? `${detail} (${ev.error.code})` : ev.error.code;
+            }
+          }
+          console.warn('nkn ws error', cid, detail || ev);
           logActivity(`NKN websocket error (${cid}): ${String(detail || '') || 'unknown'}, reconnecting`, false);
           resetNknClient();
         });

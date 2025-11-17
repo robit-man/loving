@@ -728,13 +728,23 @@ const onWsError = (clientId, ev) => {
   if (typeof clientId === 'string') {
     cid = clientId;
   } else if (clientId && typeof clientId === 'object') {
-    cid = clientId.id || clientId.addr || clientId.address || clientId.name || undefined;
-    if (!cid) {
-      try { cid = JSON.stringify(clientId); } catch (_) { cid = 'unknown'; }
+    cid = clientId.id || clientId.addr || clientId.address || clientId.name || clientId._name || undefined;
+    if (!cid && clientId.url) cid = clientId.url;
+    if (!cid && clientId._url) cid = clientId._url;
+  }
+
+  let detail = '';
+  if (ev) {
+    detail = ev.message || ev.type || ev.code || ev.error || '';
+    if (!detail && ev.target && (ev.target.url || ev.target._url)) {
+      detail = ev.target.url || ev.target._url;
+    }
+    if (ev.error && ev.error.code) {
+      detail = detail ? `${detail} (${ev.error.code})` : ev.error.code;
     }
   }
-  const detail = ev && ev.message ? ev.message : ev && ev.type ? ev.type : ev;
-  emit({ type: 'status', level: 'ws_error', message: `ws error on ${cid}: ${String(detail || '')}` });
+
+  emit({ type: 'status', level: 'ws_error', message: `ws error on ${cid}: ${String(detail || '') || 'unknown'}` });
 };
 
 if (typeof client.onWsError === 'function') {
