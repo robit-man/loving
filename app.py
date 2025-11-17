@@ -724,8 +724,17 @@ if (typeof client.onConnectFailed === 'function') {
 }
 
 const onWsError = (clientId, ev) => {
-  const detail = ev && ev.message ? ev.message : ev;
-  emit({ type: 'status', level: 'ws_error', message: `ws error on ${clientId}: ${String(detail || '')}` });
+  let cid = 'unknown';
+  if (typeof clientId === 'string') {
+    cid = clientId;
+  } else if (clientId && typeof clientId === 'object') {
+    cid = clientId.id || clientId.addr || clientId.address || clientId.name || undefined;
+    if (!cid) {
+      try { cid = JSON.stringify(clientId); } catch (_) { cid = 'unknown'; }
+    }
+  }
+  const detail = ev && ev.message ? ev.message : ev && ev.type ? ev.type : ev;
+  emit({ type: 'status', level: 'ws_error', message: `ws error on ${cid}: ${String(detail || '')}` });
 };
 
 if (typeof client.onWsError === 'function') {
