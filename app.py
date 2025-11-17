@@ -58,6 +58,7 @@ _bootstrap_venv_if_needed()
 
 # === Runtime imports ========================================================
 
+import codecs
 import requests
 
 # === App configuration ======================================================
@@ -70,6 +71,8 @@ OLLAMA_CHAT_ENDPOINT = "/api/chat"
 OLLAMA_TIMEOUT_S = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
 OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "")
 OLLAMA_KEEPALIVE_INTERVAL_S = int(os.environ.get("OLLAMA_KEEPALIVE_INTERVAL", "240"))
+OLLAMA_STREAM_CHUNK_B = int(os.environ.get("OLLAMA_STREAM_CHUNK_B", str(16 * 1024)))
+OLLAMA_HEARTBEAT_S = int(os.environ.get("OLLAMA_HEARTBEAT_S", "10"))
 MAX_CONTEXT_MESSAGES = int(os.environ.get("MAX_CONTEXT", "30"))
 MAX_MESSAGE_LENGTH = 4000
 
@@ -561,7 +564,7 @@ class OllamaClient:
         self._timeout = timeout_s
         self._keep_alive = keep_alive
 
-    def stream(self, messages: List[Dict[str, str]]) -> Iterable[str]:
+    def stream(self, messages: List[Dict[str, str]]) -> Iterable[Dict[str, Any]]:
         url = f"{self._base}{self._endpoint}"
         payload: Dict[str, Any] = {
             "model": self._model,
@@ -573,19 +576,75 @@ class OllamaClient:
         response = requests.post(url, json=payload, timeout=self._timeout, stream=True)
         response.raise_for_status()
 
-        for line in response.iter_lines(decode_unicode=True):
-            if not line:
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        buf = ""
+        seq = 0
+        last_event = time.time()
+
+        for chunk in response.iter_content(chunk_size=OLLAMA_STREAM_CHUNK_B):
+            if not chunk:
+                if time.time() - last_event >= OLLAMA_HEARTBEAT_S:
+                    yield {"keepalive": True, "timestamp": time.time()}
+                    last_event = time.time()
                 continue
+            decoded = decoder.decode(chunk)
+            if not decoded:
+                continue
+            buf += decoded
+            while True:
+                nl = buf.find("\n")
+                if nl < 0:
+                    break
+                line = buf[:nl]
+                buf = buf[nl + 1:]
+                if not line.strip():
+                    continue
+                seq += 1
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                packet = {
+                    "seq": seq,
+                    "timestamp": time.time(),
+                    "detail": data.get("detail"),
+                    "model": data.get("model"),
+                }
+                message = data.get("message") or {}
+                content = ""
+                if isinstance(message, dict):
+                    content = message.get("content") or ""
+                elif isinstance(message, str):
+                    content = message
+                if content:
+                    packet["content"] = content
+                if data.get("done"):
+                    packet["done"] = True
+                yield packet
+                last_event = time.time()
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            buf += tail
+        if buf.strip():
+            seq += 1
             try:
-                data = json.loads(line)
+                data = json.loads(buf)
             except json.JSONDecodeError:
-                continue
+                return
+            packet = {
+                "seq": seq,
+                "timestamp": time.time(),
+                "detail": data.get("detail"),
+                "model": data.get("model"),
+            }
             message = data.get("message") or {}
-            delta = message.get("content") or ""
-            if delta:
-                yield delta
+            if isinstance(message, dict):
+                packet["content"] = message.get("content") or ""
+            elif isinstance(message, str):
+                packet["content"] = message
             if data.get("done"):
-                break
+                packet["done"] = True
+            yield packet
 
     def warm_model(self) -> None:
         """Issue a lightweight keep-alive request so Ollama keeps the model in RAM."""
@@ -1400,9 +1459,13 @@ class NKNRelayServer:
                 print(f"[chat] Progressive save: {len(accumulated)} chars, seq={seq_num}")
 
         try:
-            for delta in self._ollama.stream(assembled):
+            for packet in self._ollama.stream(assembled):
                 if cancel_flag.is_set():
                     break
+                if packet.get("keepalive"):
+                    continue
+                delta = packet.get("content")
+                done_flag = packet.get("done")
                 if delta:
                     if not streaming_signaled:
                         streaming_signaled = True
@@ -1414,14 +1477,14 @@ class NKNRelayServer:
                         )
                     full_reply_parts.append(delta)
                     batch_buffer.append(delta)
-
                     # Calculate batch metrics
                     batch_chars = sum(len(d) for d in batch_buffer)
                     time_since_send = (time.time() - last_send_time) * 1000  # ms
-
                     # Flush batch if it's large enough or enough time has passed
                     if batch_chars >= batch_max_chars or time_since_send >= batch_max_delay_ms:
                         flush_batch()
+                if done_flag:
+                    break
 
             # Flush any remaining batched deltas
             flush_batch()
