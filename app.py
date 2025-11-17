@@ -1430,6 +1430,7 @@ class NKNRelayServer:
         persist_interval_ms = 500  # Save to DB every 500ms
         final_content = ""
         streaming_signaled = False
+        final_emitted = False
         completed_successfully = False
 
         def flush_batch():
@@ -1497,7 +1498,16 @@ class NKNRelayServer:
                 total_seq=seq_num,
                 chars=len(final_content),
             )
-            # Send completion marker with final sequence number and full content
+            if not streaming_signaled and final_content:
+                self._send(src, {
+                    "event": "chat.delta",
+                    "id": req_id,
+                    "delta": final_content,
+                    "seq": 0,
+                    "batch_size": 1,
+                    "timestamp": time.time()
+                })
+                final_emitted = True
             self._send(src, {
                 "event": "chat.done",
                 "id": req_id,
